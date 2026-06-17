@@ -1,5 +1,5 @@
-%% МОДЕЛЬ РАДАРА - ШАГ 2: Добавляем две поляризации (H и V)
-% Два независимых канала: горизонтальный и вертикальный
+%% МОДЕЛЬ РАДАРА - ШАГ 3: Добавляем усиление антенны
+% Зеркальная антенна диаметром 1 м
 
 clear; clc; close all;
 
@@ -16,7 +16,27 @@ Fs = 10 * BW;       % 10 МГц
 % Цель
 targetRange = 5000; % 5 км
 
-%% 2. ПОТЕРИ В ТРАКТЕ
+%% 2. АНТЕННА (НОВОЕ!)
+Diameter = 1.0; % Диаметр зеркала 1 м
+
+% Физическая апертура
+AperturePhysical = pi * (Diameter/2)^2;
+
+% Коэффициент полезного действия (типично для зеркальных 50-70%)
+AntennaEfficiency = 0.6;
+
+% Эффективная апертура
+EffectiveAperture = AntennaEfficiency * AperturePhysical;
+
+% Коэффициент усиления (в dBi и линейный)
+Gain_dBi = aperture2gain(EffectiveAperture, lambda);
+Gain_Linear = 10^(Gain_dBi/10);
+
+fprintf('Диаметр антенны: %.2f м\n', Diameter);
+fprintf('Эффективная апертура: %.4f кв.м\n', EffectiveAperture);
+fprintf('Усиление антенны: %.2f дБи (линейное: %.2f)\n', Gain_dBi, Gain_Linear);
+
+%% 3. ПОТЕРИ В ТРАКТЕ
 Loss_Feed = 2.0;        % дБ
 Loss_Circulator = 1.5;  % дБ
 Loss_Radome = 0.5;      % дБ
@@ -25,7 +45,7 @@ TotalLoss_Linear = 10^(-TotalLoss_dB/10);
 
 fprintf('Потери в тракте: %.2f дБ\n', TotalLoss_dB);
 
-%% 3. СОЗДАЕМ ЛЧМ СИГНАЛ
+%% 4. СОЗДАЕМ ЛЧМ СИГНАЛ
 waveform = phased.LinearFMWaveform(...
     'SampleRate', Fs, ...
     'SweepBandwidth', BW, ...
@@ -43,7 +63,7 @@ x_active = x(1:N_active);
 
 fprintf('Длина активной части: %d отсчетов (%.2f мкс)\n', N_active, N_active/Fs*1e6);
 
-%% 4. ГРАФИК 1: ЛЧМ СИГНАЛ
+%% 5. ГРАФИК 1: ЛЧМ СИГНАЛ
 figure('Position', [100 100 1400 900]);
 
 subplot(3,3,1);
@@ -67,7 +87,7 @@ title('Спектр ЛЧМ сигнала');
 grid on;
 xlim([-BW*2 BW*2]);
 
-%% 5. МОДЕЛИРУЕМ РАСПРОСТРАНЕНИЕ (ДВА КАНАЛА!)
+%% 6. МОДЕЛИРУЕМ РАСПРОСТРАНЕНИЕ
 channel = phased.FreeSpace(...
     'SampleRate', Fs, ...
     'OperatingFrequency', fc, ...
@@ -78,18 +98,24 @@ radarVel = [0; 0; 0];
 targetPos = [targetRange; 0; 0];
 targetVel = [0; 0; 0];
 
-% НОВОЕ: Передаем два сигнала (H и V)
+% Передаем два сигнала (H и V)
 tx_H = x;
-tx_V = x;  % Пока одинаковые
+tx_V = x;
 
 % Проходим канал для каждой поляризации
 rx_H = channel(tx_H, radarPos, targetPos, radarVel, targetVel);
 rx_V = channel(tx_V, radarPos, targetPos, radarVel, targetVel);
 
+% НОВОЕ: Применяем усиление антенны (дважды: на передачу и прием)
+% Усиление применяется дважды, поэтому берем Gain_Linear (не корень!)
+rx_H = rx_H * Gain_Linear;
+rx_V = rx_V * Gain_Linear;
+
 % Применяем потери к каждому каналу
 rx_H = rx_H * sqrt(TotalLoss_Linear);
 rx_V = rx_V * sqrt(TotalLoss_Linear);
 
+fprintf('Усиление антенны применено: %.2f дБ (x2 = %.2f дБ)\n', Gain_dBi, 2*Gain_dBi);
 fprintf('Сигналы H и V ослаблены на %.2f дБ\n', TotalLoss_dB);
 
 % Визуализация принятых сигналов
@@ -113,11 +139,10 @@ grid on;
 xlim([0 100]);
 legend('H', 'V');
 
-%% 6. СОГЛАСОВАННЫЙ ФИЛЬТР (ДЛЯ КАЖДОГО КАНАЛА)
+%% 7. СОГЛАСОВАННЫЙ ФИЛЬТР
 mf = phased.MatchedFilter(...
     'Coefficients', conj(flipud(x_active)));
 
-% Применяем фильтр к каждому каналу
 y_H = mf(rx_H);
 y_V = mf(rx_V);
 
@@ -137,16 +162,14 @@ grid on;
 xlim([0 100]);
 legend('H', 'V');
 
-% Находим пики для каждого канала
 [peak_H, peak_idx_H] = max(abs(y_H));
 [peak_V, peak_idx_V] = max(abs(y_V));
 fprintf('Пик H: %.2f мкс, Пик V: %.2f мкс\n', t_y(peak_idx_H)*1e6, t_y(peak_idx_V)*1e6);
 
-%% 7. ПЕРЕВОДИМ В ДАЛЬНОСТЬ (ДЛЯ КАЖДОГО КАНАЛА)
+%% 8. ПЕРЕВОДИМ В ДАЛЬНОСТЬ
 t_y_corrected = t_y - (N_active - 1)/Fs;
 R_y = c * t_y_corrected / 2;
 
-% Обрезаем отрицательные
 idx = find(R_y > 0);
 R_y = R_y(idx);
 y_H = y_H(idx);
@@ -165,7 +188,6 @@ xlim([0 15]);
 hold on;
 xline(targetRange/1000, 'k--', 'Цель 5 км', 'LineWidth', 2);
 
-% Находим пики
 [~, peak_idx_R_H] = max(abs(y_H));
 [~, peak_idx_R_V] = max(abs(y_V));
 R_peak_H = R_y(peak_idx_R_H);
@@ -175,7 +197,7 @@ plot(R_peak_H/1000, max(abs(y_H)), 'bo', 'MarkerSize', 10, 'LineWidth', 2);
 plot(R_peak_V/1000, max(abs(y_V)), 'ro', 'MarkerSize', 10, 'LineWidth', 2);
 legend('H', 'V', 'Цель', 'Location', 'best');
 
-%% 8. ЛОГАРИФМИЧЕСКИЙ МАСШТАБ
+%% 9. ЛОГАРИФМИЧЕСКИЙ МАСШТАБ
 subplot(3,3,8);
 plot(R_y/1000, 20*log10(abs(y_H)+eps), 'b', 'LineWidth', 1.5);
 hold on;
@@ -190,7 +212,7 @@ hold on;
 xline(targetRange/1000, 'k--', 'Цель 5 км', 'LineWidth', 2);
 legend('H', 'V');
 
-%% 9. ФАЗОВЫЙ ПОРТРЕТ (H и V)
+%% 10. ФАЗОВЫЙ ПОРТРЕТ
 subplot(3,3,9);
 plot(real(rx_H), imag(rx_H), 'b.', 'MarkerSize', 1);
 hold on;
@@ -201,8 +223,8 @@ axis equal;
 grid on;
 legend('H', 'V');
 
-%% 10. УВЕЛИЧЕННЫЙ ГРАФИК
-figure('Name', 'Пики на 5 км (H и V)');
+%% 11. УВЕЛИЧЕННЫЙ ГРАФИК
+figure('Name', 'Пики на 5 км (с усилением антенны)');
 plot(R_y/1000, abs(y_H), 'b', 'LineWidth', 2);
 hold on;
 plot(R_y/1000, abs(y_V), 'r', 'LineWidth', 2);
@@ -210,19 +232,20 @@ xline(targetRange/1000, 'k--', 'Цель 5 км', 'LineWidth', 2);
 plot(R_peak_H/1000, max(abs(y_H)), 'bo', 'MarkerSize', 15, 'LineWidth', 3);
 plot(R_peak_V/1000, max(abs(y_V)), 'ro', 'MarkerSize', 15, 'LineWidth', 3);
 xlabel('Дальность (км)'); ylabel('Амплитуда');
-title('Пики согласованного фильтра (H и V)');
+title(['Пики с усилением ' num2str(Gain_dBi, '%.1f') ' дБи']);
 grid on;
 xlim([4.5 5.5]);
 ylim([0.9 1.05]);
 legend('H', 'V', 'Цель', 'Пик H', 'Пик V', 'Location', 'best');
 
-%% 11. ВЫВОД
+%% 12. ВЫВОД
 fprintf('\n========== РЕЗУЛЬТАТЫ ==========\n');
 fprintf('Заданная дальность: %.2f м\n', targetRange);
 fprintf('H-канал: дальность %.2f м\n', R_peak_H);
 fprintf('V-канал: дальность %.2f м\n', R_peak_V);
 fprintf('Ошибка H: %.2f м\n', abs(R_peak_H - targetRange));
 fprintf('Ошибка V: %.2f м\n', abs(R_peak_V - targetRange));
+fprintf('Усиление антенны: %.2f дБи\n', Gain_dBi);
 
 if abs(R_peak_H - targetRange) < c/(2*BW) && abs(R_peak_V - targetRange) < c/(2*BW)
     fprintf('\n✅ ОБА КАНАЛА работают правильно!\n');
