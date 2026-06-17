@@ -1,5 +1,5 @@
-%% МОДЕЛЬ РАДАРА - ШАГ 4: Добавляем затухания в среде
-% Атмосферное затухание + многолучевость
+%% МОДЕЛЬ РАДАРА - ШАГ 5: Добавляем поляризационную матрицу рассеяния
+% Цель описывается матрицей 2x2: [HH HV; VH VV]
 
 clear; clc; close all;
 
@@ -35,30 +35,49 @@ TotalLoss_Linear = 10^(-TotalLoss_dB/10);
 
 fprintf('Потери в тракте: %.2f дБ\n', TotalLoss_dB);
 
-%% 4. НОВОЕ: ПАРАМЕТРЫ СРЕДЫ РАСПРОСТРАНЕНИЯ
-% Высота радара и цели над землей (для многолучевости)
-altitude_radar = 10;    % Радар на вышке 10 м
-altitude_target = 5;    % Цель на высоте 5 м
+%% 4. СРЕДА РАСПРОСТРАНЕНИЯ
+altitude_radar = 10;
+altitude_target = 5;
 
-% Атмосферное затухание (на 3 ГГц очень маленькое)
-% Для примера возьмем 0.01 дБ/км (типично для 3 ГГц)
-AtmosLoss_dB_per_km = 0.01;  % дБ/км
-AtmosLoss_dB = AtmosLoss_dB_per_km * targetRange / 1000; % Для 5 км
+AtmosLoss_dB_per_km = 0.01;
+AtmosLoss_dB = AtmosLoss_dB_per_km * targetRange / 1000;
 AtmosLoss_Linear = 10^(-AtmosLoss_dB/10);
 
-fprintf('Атмосферное затухание: %.3f дБ\n', AtmosLoss_dB);
-
-% Многолучевость (интерференция прямого и отраженного от земли лучей)
 delta_R = 2 * altitude_radar * altitude_target / targetRange;
 delta_phi = 2 * pi * delta_R / lambda;
-% Коэффициент отражения земли (для горизонтальной поляризации)
-% При малых углах скольжения Γ ≈ -1
 InterferenceFactor = abs(1 - exp(1j * delta_phi)).^2 / 4;
 InterferenceLoss_dB = -10 * log10(InterferenceFactor + eps);
 
-fprintf('Потери от интерференции с землей: %.2f дБ\n', InterferenceLoss_dB);
+fprintf('Атмосферное затухание: %.3f дБ\n', AtmosLoss_dB);
+fprintf('Потери от интерференции: %.2f дБ\n', InterferenceLoss_dB);
 
-%% 5. СОЗДАЕМ ЛЧМ СИГНАЛ
+%% 5. НОВОЕ: ПОЛЯРИЗАЦИОННАЯ МАТРИЦА ЦЕЛИ
+% Матрица рассеяния 2x2: [HH HV; VH VV]
+% HH - горизонтальная передача, горизонтальный прием
+% HV - горизонтальная передача, вертикальный прием
+% VH - вертикальная передача, горизонтальный прием
+% VV - вертикальная передача, вертикальный прием
+
+% Пример: уголковый отражатель (диагональная матрица)
+% HH = VV = 10 кв.м, HV = VH = 0
+RCS_HH = 10;    % кв.м
+RCS_VV = 10;    % кв.м
+RCS_HV = 0;     % кв.м (перекрестная поляризация)
+RCS_VH = 0;     % кв.м (перекрестная поляризация)
+
+% Формируем матрицу 2x2
+PolarizationMatrix = [RCS_HH, RCS_HV; RCS_VH, RCS_VV];
+
+fprintf('\n--- ПОЛЯРИЗАЦИОННАЯ МАТРИЦА ЦЕЛИ ---\n');
+fprintf('HH = %.1f кв.м, HV = %.1f кв.м\n', RCS_HH, RCS_HV);
+fprintf('VH = %.1f кв.м, VV = %.1f кв.м\n', RCS_VH, RCS_VV);
+
+% Проверка: диагональная матрица (нет перекрестных компонент)
+if RCS_HV == 0 && RCS_VH == 0
+    fprintf('Тип: уголковый отражатель (диагональная матрица)\n');
+end
+
+%% 6. СОЗДАЕМ ЛЧМ СИГНАЛ
 waveform = phased.LinearFMWaveform(...
     'SampleRate', Fs, ...
     'SweepBandwidth', BW, ...
@@ -75,7 +94,7 @@ x_active = x(1:N_active);
 
 fprintf('Длина активной части: %d отсчетов (%.2f мкс)\n', N_active, N_active/Fs*1e6);
 
-%% 6. ГРАФИК 1: ЛЧМ СИГНАЛ
+%% 7. ГРАФИК 1: ЛЧМ СИГНАЛ
 figure('Position', [100 100 1400 900]);
 
 subplot(3,3,1);
@@ -99,20 +118,18 @@ title('Спектр ЛЧМ сигнала');
 grid on;
 xlim([-BW*2 BW*2]);
 
-%% 7. МОДЕЛИРУЕМ РАСПРОСТРАНЕНИЕ (ОБНОВЛЕНО!)
-% НОВОЕ: Поднимаем радар и цель над землей
+%% 8. МОДЕЛИРУЕМ РАСПРОСТРАНЕНИЕ
 radarPos = [0; 0; altitude_radar];
 radarVel = [0; 0; 0];
 targetPos = [targetRange; 0; altitude_target];
 targetVel = [0; 0; 0];
 
-% Канал распространения в свободном пространстве
 channel = phased.FreeSpace(...
     'SampleRate', Fs, ...
     'OperatingFrequency', fc, ...
     'TwoWayPropagation', true);
 
-% Передаем сигналы
+% Передаем два сигнала (H и V)
 tx_H = x;
 tx_V = x;
 
@@ -120,13 +137,28 @@ tx_V = x;
 rx_H = channel(tx_H, radarPos, targetPos, radarVel, targetVel);
 rx_V = channel(tx_V, radarPos, targetPos, radarVel, targetVel);
 
-% НОВОЕ: Применяем атмосферное затухание
-rx_H = rx_H * sqrt(AtmosLoss_Linear);  % sqrt потому что двухпроходная схема
+% Атмосферное затухание
+rx_H = rx_H * sqrt(AtmosLoss_Linear);
 rx_V = rx_V * sqrt(AtmosLoss_Linear);
 
-% НОВОЕ: Применяем потери от интерференции с землей (многолучевость)
+% Потери от интерференции с землей
 rx_H = rx_H * 10^(-InterferenceLoss_dB/20);
 rx_V = rx_V * 10^(-InterferenceLoss_dB/20);
+
+%% 9. НОВОЕ: ПРИМЕНЯЕМ ПОЛЯРИЗАЦИОННУЮ МАТРИЦУ
+% Сигнал на входе цели: [rx_H; rx_V]
+% Сигнал на выходе цели: [rx_H_out; rx_V_out] = PolarizationMatrix * [rx_H; rx_V]
+% 
+% rx_H_out = HH * rx_H + HV * rx_V
+% rx_V_out = VH * rx_H + VV * rx_V
+
+% Применяем матрицу рассеяния к сигналу
+rx_H_target = PolarizationMatrix(1,1) * rx_H + PolarizationMatrix(1,2) * rx_V;
+rx_V_target = PolarizationMatrix(2,1) * rx_H + PolarizationMatrix(2,2) * rx_V;
+
+% Теперь сигнал после отражения от цели
+rx_H = rx_H_target;
+rx_V = rx_V_target;
 
 % Применяем усиление антенны
 rx_H = rx_H * Gain_Linear;
@@ -136,7 +168,7 @@ rx_V = rx_V * Gain_Linear;
 rx_H = rx_H * sqrt(TotalLoss_Linear);
 rx_V = rx_V * sqrt(TotalLoss_Linear);
 
-fprintf('Общие потери в среде: %.2f дБ\n', AtmosLoss_dB + InterferenceLoss_dB);
+fprintf('\nОбщие потери в среде: %.2f дБ\n', AtmosLoss_dB + InterferenceLoss_dB);
 
 % Визуализация принятых сигналов
 subplot(3,3,4);
@@ -159,7 +191,7 @@ grid on;
 xlim([0 100]);
 legend('H', 'V');
 
-%% 8. СОГЛАСОВАННЫЙ ФИЛЬТР
+%% 10. СОГЛАСОВАННЫЙ ФИЛЬТР
 mf = phased.MatchedFilter(...
     'Coefficients', conj(flipud(x_active)));
 
@@ -185,7 +217,7 @@ legend('H', 'V');
 [peak_V, peak_idx_V] = max(abs(y_V));
 fprintf('Пик H: %.2f мкс, Пик V: %.2f мкс\n', t_y(peak_idx_H)*1e6, t_y(peak_idx_V)*1e6);
 
-%% 9. ПЕРЕВОДИМ В ДАЛЬНОСТЬ
+%% 11. ПЕРЕВОДИМ В ДАЛЬНОСТЬ
 t_y_corrected = t_y - (N_active - 1)/Fs;
 R_y = c * t_y_corrected / 2;
 
@@ -216,7 +248,7 @@ plot(R_peak_H/1000, max(abs(y_H)), 'bo', 'MarkerSize', 10, 'LineWidth', 2);
 plot(R_peak_V/1000, max(abs(y_V)), 'ro', 'MarkerSize', 10, 'LineWidth', 2);
 legend('H', 'V', 'Цель', 'Location', 'best');
 
-%% 10. ЛОГАРИФМИЧЕСКИЙ МАСШТАБ
+%% 12. ЛОГАРИФМИЧЕСКИЙ МАСШТАБ
 subplot(3,3,8);
 plot(R_y/1000, 20*log10(abs(y_H)+eps), 'b', 'LineWidth', 1.5);
 hold on;
@@ -231,7 +263,7 @@ hold on;
 xline(targetRange/1000, 'k--', 'Цель 5 км', 'LineWidth', 2);
 legend('H', 'V');
 
-%% 11. ФАЗОВЫЙ ПОРТРЕТ
+%% 13. ФАЗОВЫЙ ПОРТРЕТ
 subplot(3,3,9);
 plot(real(rx_H), imag(rx_H), 'b.', 'MarkerSize', 1);
 hold on;
@@ -242,8 +274,8 @@ axis equal;
 grid on;
 legend('H', 'V');
 
-%% 12. УВЕЛИЧЕННЫЙ ГРАФИК
-figure('Name', 'Пики на 5 км (с затуханиями)');
+%% 14. УВЕЛИЧЕННЫЙ ГРАФИК
+figure('Name', 'Пики на 5 км (с поляризационной матрицей)');
 plot(R_y/1000, abs(y_H), 'b', 'LineWidth', 2);
 hold on;
 plot(R_y/1000, abs(y_V), 'r', 'LineWidth', 2);
@@ -251,21 +283,25 @@ xline(targetRange/1000, 'k--', 'Цель 5 км', 'LineWidth', 2);
 plot(R_peak_H/1000, max(abs(y_H)), 'bo', 'MarkerSize', 15, 'LineWidth', 3);
 plot(R_peak_V/1000, max(abs(y_V)), 'ro', 'MarkerSize', 15, 'LineWidth', 3);
 xlabel('Дальность (км)'); ylabel('Амплитуда');
-title(['Пики с затуханиями (атмосф. ' num2str(AtmosLoss_dB, '%.2f') ' дБ, земля ' num2str(InterferenceLoss_dB, '%.2f') ' дБ)']);
+title(['Пики с поляризационной матрицей (HH=' num2str(RCS_HH) ', VV=' num2str(RCS_VV) ')']);
 grid on;
 xlim([4.5 5.5]);
 ylim([0.9 1.05]);
 legend('H', 'V', 'Цель', 'Пик H', 'Пик V', 'Location', 'best');
 
-%% 13. ВЫВОД
+%% 15. ВЫВОД
 fprintf('\n========== РЕЗУЛЬТАТЫ ==========\n');
 fprintf('Заданная дальность: %.2f м\n', targetRange);
 fprintf('H-канал: дальность %.2f м\n', R_peak_H);
 fprintf('V-канал: дальность %.2f м\n', R_peak_V);
 fprintf('Ошибка H: %.2f м\n', abs(R_peak_H - targetRange));
 fprintf('Ошибка V: %.2f м\n', abs(R_peak_V - targetRange));
-fprintf('Атмосферное затухание: %.3f дБ\n', AtmosLoss_dB);
-fprintf('Потери от интерференции: %.2f дБ\n', InterferenceLoss_dB);
+
+% Сравнение амплитуд каналов
+amp_H = max(abs(y_H));
+amp_V = max(abs(y_V));
+fprintf('Амплитуда H: %.3f, V: %.3f\n', amp_H, amp_V);
+fprintf('Отношение H/V: %.2f (%.2f дБ)\n', amp_H/amp_V, 20*log10(amp_H/amp_V));
 
 if abs(R_peak_H - targetRange) < c/(2*BW) && abs(R_peak_V - targetRange) < c/(2*BW)
     fprintf('\n✅ ОБА КАНАЛА работают правильно!\n');
@@ -273,7 +309,7 @@ else
     fprintf('\n❌ ОШИБКА в одном из каналов\n');
 end
 
-%% 14. ДИАГНОСТИКА ПОТЕРЬ
+%% 16. СВОДКА ПОТЕРЬ
 fprintf('\n--- СВОДКА ПОТЕРЬ ---\n');
 fprintf('Потери в тракте:         %.2f дБ\n', TotalLoss_dB);
 fprintf('Атмосферное затухание:   %.3f дБ\n', AtmosLoss_dB);
