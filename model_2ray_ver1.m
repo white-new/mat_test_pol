@@ -1,5 +1,5 @@
-%% МОДЕЛЬ РАДАРА - ШАГ 6: Добавляем перекрестные поляризационные компоненты
-% Цель с матрицей рассеяния, где HV и VH не равны нулю
+%% МОДЕЛЬ РАДАРА - ШАГ 7: Несимметричная поляризационная матрица
+% Цель с HV ≠ VH (несимметричная матрица рассеяния)
 
 clear; clc; close all;
 
@@ -51,29 +51,39 @@ InterferenceLoss_dB = -10 * log10(InterferenceFactor + eps);
 fprintf('Атмосферное затухание: %.3f дБ\n', AtmosLoss_dB);
 fprintf('Потери от интерференции: %.2f дБ\n', InterferenceLoss_dB);
 
-%% 5. НОВОЕ: ПОЛЯРИЗАЦИОННАЯ МАТРИЦА С ПЕРЕКРЕСТНЫМИ КОМПОНЕНТАМИ
+%% 5. НОВОЕ: НЕСИММЕТРИЧНАЯ ПОЛЯРИЗАЦИОННАЯ МАТРИЦА
 % Матрица рассеяния 2x2: [HH HV; VH VV]
 % 
-% Пример: цель с перекрестной поляризацией (диполь, сложная цель)
-% HH = 8 кв.м, VV = 8 кв.м (диагональные компоненты)
-% HV = 3 кв.м, VH = 3 кв.м (перекрестные компоненты - цель "поворачивает" поляризацию)
+% HV ≠ VH - несимметричная матрица (встречается у сложных целей)
+% Например: наклонный диполь или цель с поворотом
 
-RCS_HH = 8;     % кв.м
-RCS_VV = 8;     % кв.м
-RCS_HV = 3;     % кв.м (H->V преобразование)
-RCS_VH = 3;     % кв.м (V->H преобразование)
+RCS_HH = 10;    % кв.м
+RCS_VV = 8;     % кв.м (отличается от HH)
+RCS_HV = 4;     % кв.м (H->V)
+RCS_VH = 2;     % кв.м (V->H) - ОТЛИЧАЕТСЯ от HV!
 
 % Формируем матрицу 2x2
 PolarizationMatrix = [RCS_HH, RCS_HV; RCS_VH, RCS_VV];
 
-fprintf('\n--- ПОЛЯРИЗАЦИОННАЯ МАТРИЦА ЦЕЛИ ---\n');
+fprintf('\n--- НЕСИММЕТРИЧНАЯ ПОЛЯРИЗАЦИОННАЯ МАТРИЦА ---\n');
 fprintf('HH = %.1f кв.м, HV = %.1f кв.м\n', RCS_HH, RCS_HV);
 fprintf('VH = %.1f кв.м, VV = %.1f кв.м\n', RCS_VH, RCS_VV);
 
-% Вычисляем коэффициент деполяризации
+% Проверка симметричности
+if RCS_HV == RCS_VH
+    fprintf('Матрица СИММЕТРИЧНАЯ (HV = VH)\n');
+else
+    fprintf('Матрица НЕСИММЕТРИЧНАЯ (HV ≠ VH), разница: %.1f кв.м\n', RCS_HV - RCS_VH);
+end
+
+% Коэффициент деполяризации
 depolarization_ratio = (RCS_HV + RCS_VH) / (RCS_HH + RCS_VV);
 fprintf('Коэффициент деполяризации: %.2f (%.2f дБ)\n', ...
         depolarization_ratio, 10*log10(depolarization_ratio));
+
+% Асимметрия
+asymmetry = abs(RCS_HV - RCS_VH) / (RCS_HV + RCS_VH + eps);
+fprintf('Коэффициент асимметрии: %.2f\n', asymmetry);
 
 %% 6. СОЗДАЕМ ЛЧМ СИГНАЛ
 waveform = phased.LinearFMWaveform(...
@@ -143,10 +153,7 @@ rx_V = rx_V * sqrt(AtmosLoss_Linear);
 rx_H = rx_H * 10^(-InterferenceLoss_dB/20);
 rx_V = rx_V * 10^(-InterferenceLoss_dB/20);
 
-%% 9. ПРИМЕНЯЕМ ПОЛЯРИЗАЦИОННУЮ МАТРИЦУ
-% Сигнал на входе цели: [rx_H; rx_V]
-% Сигнал на выходе цели: [rx_H_out; rx_V_out]
-%
+%% 9. ПРИМЕНЯЕМ НЕСИММЕТРИЧНУЮ ПОЛЯРИЗАЦИОННУЮ МАТРИЦУ
 % rx_H_out = HH * rx_H + HV * rx_V
 % rx_V_out = VH * rx_H + VV * rx_V
 
@@ -273,7 +280,7 @@ grid on;
 legend('H', 'V');
 
 %% 14. УВЕЛИЧЕННЫЙ ГРАФИК
-figure('Name', 'Пики на 5 км (с перекрестной поляризацией)');
+figure('Name', 'Пики на 5 км (несимметричная матрица)');
 plot(R_y/1000, abs(y_H), 'b', 'LineWidth', 2);
 hold on;
 plot(R_y/1000, abs(y_V), 'r', 'LineWidth', 2);
@@ -281,30 +288,28 @@ xline(targetRange/1000, 'k--', 'Цель 5 км', 'LineWidth', 2);
 plot(R_peak_H/1000, max(abs(y_H)), 'bo', 'MarkerSize', 15, 'LineWidth', 3);
 plot(R_peak_V/1000, max(abs(y_V)), 'ro', 'MarkerSize', 15, 'LineWidth', 3);
 xlabel('Дальность (км)'); ylabel('Амплитуда');
-title(['Пики с перекрестной поляризацией (HV=' num2str(RCS_HV) ', VH=' num2str(RCS_VH) ')']);
+title(['Несимметричная матрица (HV=' num2str(RCS_HV) ', VH=' num2str(RCS_VH) ')']);
 grid on;
 xlim([4.5 5.5]);
 ylim([0.9 1.05]);
 legend('H', 'V', 'Цель', 'Пик H', 'Пик V', 'Location', 'best');
 
 %% 15. АНАЛИЗ ПОЛЯРИЗАЦИОННЫХ ЭФФЕКТОВ
-% Сравниваем амплитуды каналов
 amp_H = max(abs(y_H));
 amp_V = max(abs(y_V));
-
-% Теоретическое ожидание:
-% Если HV = VH = 0, то H и V равны
-% Если HV и VH > 0, то H и V могут различаться
 
 fprintf('\n--- АНАЛИЗ ПОЛЯРИЗАЦИИ ---\n');
 fprintf('Амплитуда H: %.3f\n', amp_H);
 fprintf('Амплитуда V: %.3f\n', amp_V);
 fprintf('Отношение H/V: %.2f (%.2f дБ)\n', amp_H/amp_V, 20*log10(amp_H/amp_V));
 
-if abs(amp_H - amp_V) < 0.01
-    fprintf('Каналы сбалансированы (цель с симметричной матрицей)\n');
+% Определяем доминирующую поляризацию
+if amp_H > amp_V * 1.05
+    fprintf('▶ Доминирует H-поляризация (%.2f дБ)\n', 20*log10(amp_H/amp_V));
+elseif amp_V > amp_H * 1.05
+    fprintf('▶ Доминирует V-поляризация (%.2f дБ)\n', 20*log10(amp_V/amp_H));
 else
-    fprintf('Есть дисбаланс между каналами\n');
+    fprintf('▶ Каналы сбалансированы (разница < 0.5 дБ)\n');
 end
 
 %% 16. ВЫВОД
@@ -328,3 +333,9 @@ fprintf('Атмосферное затухание:   %.3f дБ\n', AtmosLoss_dB
 fprintf('Интерференция с землей:  %.2f дБ\n', InterferenceLoss_dB);
 fprintf('Усиление антенны:        +%.2f дБ (x2 = +%.2f дБ)\n', Gain_dBi, 2*Gain_dBi);
 fprintf('ИТОГО (без усиления):    %.2f дБ\n', TotalLoss_dB + AtmosLoss_dB + InterferenceLoss_dB);
+
+%% 18. СРАВНЕНИЕ С ТЕОРИЕЙ
+fprintf('\n--- ПОЛЯРИЗАЦИОННАЯ ТЕОРИЯ ---\n');
+fprintf('Ожидаемое отношение H/V для диагональной матрицы: 1.00 (0 дБ)\n');
+fprintf('Ожидаемое отношение H/V для несимметричной: может отличаться\n');
+fprintf('Фактическое отношение: %.2f (%.2f дБ)\n', amp_H/amp_V, 20*log10(amp_H/amp_V));
