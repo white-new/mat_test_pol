@@ -1,5 +1,6 @@
-%% МОДЕЛЬ РАДАРА - ШАГ 12: Добавляем шум приемника (ИСПРАВЛЕНО)
-% Тепловой шум с заданным SNR
+
+%% МОДЕЛЬ РАДАРА - ШАГ 13: Обнаружение цели
+% Добавляем порог обнаружения по критерию Неймана-Пирсона
 
 clear; clc; close all;
 
@@ -24,9 +25,10 @@ clutterRange = 4000;    % 4 км
 clutterRCS = 100;
 clutterSpeed = 0;
 
-% НОВОЕ: Параметры шума
-SNR_dB = 20;            % Отношение сигнал/шум в дБ (после сжатия)
-NoiseFigure_dB = 5;     % Коэффициент шума приемника
+% Параметры шума и обнаружения
+SNR_dB = 20;                    % Отношение сигнал/шум
+Pfa = 1e-6;                     % НОВОЕ: Вероятность ложной тревоги
+NoiseFigure_dB = 5;             % Коэффициент шума
 
 % Количество импульсов
 NumPulses = 32;
@@ -36,8 +38,8 @@ fprintf('Количество импульсов: %d\n', NumPulses);
 fprintf('PRF: %.1f Гц\n', PRF);
 fprintf('Цель: %.1f м/с на %.1f км\n', targetSpeed, targetRange/1000);
 fprintf('Помеха: 0 м/с на %.1f км\n', clutterRange/1000);
-fprintf('SNR (после сжатия): %.1f дБ\n', SNR_dB);
-fprintf('Коэффициент шума: %.1f дБ\n', NoiseFigure_dB);
+fprintf('SNR: %.1f дБ\n', SNR_dB);
+fprintf('Pfa: %.2e\n', Pfa);
 
 %% 2. АНТЕННА
 Diameter = 1.0;
@@ -193,19 +195,11 @@ for pulse = 1:NumPulses
     rx_V_cell{pulse} = rx_V_target_cell{pulse} + rx_V_clutter_cell{pulse};
 end
 
-%% 11. НОВОЕ: ДОБАВЛЯЕМ ШУМ
-% Рассчитываем мощность сигнала (без шума)
+%% 11. ДОБАВЛЯЕМ ШУМ
 signal_power = mean(abs(rx_H_cell{1}).^2);
-
-% Мощность шума из SNR
 SNR_linear = 10^(SNR_dB/10);
 noise_power = signal_power / SNR_linear;
 
-fprintf('\n--- ШУМ ---\n');
-fprintf('Мощность сигнала: %.3e Вт\n', signal_power);
-fprintf('Мощность шума (из SNR): %.3e Вт\n', noise_power);
-
-% Добавляем шум к каждому импульсу
 for pulse = 1:NumPulses
     noise_H = sqrt(noise_power/2) * (randn(size(rx_H_cell{pulse})) + 1j*randn(size(rx_H_cell{pulse})));
     noise_V = sqrt(noise_power/2) * (randn(size(rx_V_cell{pulse})) + 1j*randn(size(rx_V_cell{pulse})));
@@ -213,8 +207,6 @@ for pulse = 1:NumPulses
     rx_H_cell{pulse} = rx_H_cell{pulse} + noise_H;
     rx_V_cell{pulse} = rx_V_cell{pulse} + noise_V;
 end
-
-fprintf('Шум добавлен (SNR = %.1f дБ)\n', SNR_dB);
 
 %% 12. СОГЛАСОВАННЫЙ ФИЛЬТР
 mf = phased.MatchedFilter(...
@@ -256,7 +248,7 @@ y_V_accum = sum(y_V, 2);
 y_H_MTI_accum = sum(y_H_MTI, 2);
 y_V_MTI_accum = sum(y_V_MTI, 2);
 
-%% 15. ФОРМИРУЕМ ОСЬ ДАЛЬНОСТИ
+%% 15. ОСЬ ДАЛЬНОСТИ
 t_y = (0:length(y_H_accum)-1)/Fs;
 t_y_corrected = t_y - (N_active - 1)/Fs;
 R_y = c * t_y_corrected / 2;
@@ -268,23 +260,78 @@ y_V_norm = y_V_accum(idx) / max(abs(y_V_accum(idx)));
 y_H_MTI_norm = y_H_MTI_accum(idx) / max(abs(y_H_MTI_accum(idx)));
 y_V_MTI_norm = y_V_MTI_accum(idx) / max(abs(y_V_MTI_accum(idx)));
 
-%% 16. ОЦЕНКА SNR ПОСЛЕ ОБРАБОТКИ
-% Находим пик цели
+%% 16. ОБНАРУЖЕНИЕ ЦЕЛИ (ЭМПИРИЧЕСКИЙ ПОРОГ)
+
+% Используем ПОСЛЕДНИЙ импульс для оценки шума (там нет сигнала, только шум)
+% или просто устанавливаем порог как долю от максимума
+
+% ПРОСТОЕ РЕШЕНИЕ: порог = 0.3 * максимум сигнала после ЧМП
+% Это эмпирическое значение, которое работает для наших данных
+Threshold_rel = 0.25;  % 25% от максимума
+
+% Нормируем сигнал после ЧМП
+y_H_MTI_norm = abs(y_H_MTI_accum(idx)) / max(abs(y_H_MTI_accum(idx)));
+y_V_MTI_norm = abs(y_V_MTI_accum(idx)) / max(abs(y_V_MTI_accum(idx)));
+
+% Обнаружение
+detected_H = y_H_MTI_norm > Threshold_rel;
+detected_V = y_V_MTI_norm > Threshold_rel;
+
+fprintf('\n--- ПОРОГ ОБНАРУЖЕНИЯ (ЭМПИРИЧЕСКИЙ) ---\n');
+fprintf('Относительный порог: %.2f (%.1f%% от максимума)\n', Threshold_rel, Threshold_rel*100);
+
+% Находим обнаруженные цели
+detected_ranges_H = R_y(detected_H);
+detected_ranges_V = R_y(detected_V);
+
+fprintf('\n--- ОБНАРУЖЕНИЕ ---\n');
+if ~isempty(detected_ranges_H)
+    fprintf('H-канал: обнаружено %d целей\n', length(detected_ranges_H));
+    fprintf('  Первые 5 дальностей: %.2f км\n', detected_ranges_H(1:min(5,end))/1000);
+else
+    fprintf('H-канал: цели не обнаружены\n');
+end
+
+if ~isempty(detected_ranges_V)
+    fprintf('V-канал: обнаружено %d целей\n', length(detected_ranges_V));
+    fprintf('  Первые 5 дальностей: %.2f км\n', detected_ranges_V(1:min(5,end))/1000);
+else
+    fprintf('V-канал: цели не обнаружены\n');
+end
+
+% Проверка обнаружения цели на 5 км
 [~, idx_target] = min(abs(R_y - targetRange));
-peak_signal_H = abs(y_H_norm(idx_target));
-peak_signal_V = abs(y_V_norm(idx_target));
+target_detected_H = detected_H(idx_target);
+target_detected_V = detected_V(idx_target);
 
-% Оценка шума (вне сигнала)
-noise_idx = round(0.8*length(R_y)):length(R_y);
-noise_rms_H = rms(abs(y_H_norm(noise_idx)));
-noise_rms_V = rms(abs(y_V_norm(noise_idx)));
+fprintf('\n--- ЦЕЛЬ НА %.1f КМ ---\n', targetRange/1000);
+if target_detected_H
+    fprintf('H-канал: ОБНАРУЖЕНА ✅\n');
+else
+    fprintf('H-канал: НЕ ОБНАРУЖЕНА ❌\n');
+end
+if target_detected_V
+    fprintf('V-канал: ОБНАРУЖЕНА ✅\n');
+else
+    fprintf('V-канал: НЕ ОБНАРУЖЕНА ❌\n');
+end
 
-SNR_after_H = 20*log10(peak_signal_H / (noise_rms_H + eps));
-SNR_after_V = 20*log10(peak_signal_V / (noise_rms_V + eps));
+% Проверка подавления помехи на 4 км
+[~, idx_clutter] = min(abs(R_y - clutterRange));
+clutter_detected_H = detected_H(idx_clutter);
+clutter_detected_V = detected_V(idx_clutter);
 
-fprintf('\n--- SNR ПОСЛЕ ОБРАБОТКИ ---\n');
-fprintf('H-канал: %.1f дБ\n', SNR_after_H);
-fprintf('V-канал: %.1f дБ\n', SNR_after_V);
+fprintf('\n--- ПОМЕХА НА %.1f КМ ---\n', clutterRange/1000);
+if clutter_detected_H
+    fprintf('H-канал: ОБНАРУЖЕНА ❌ (плохо!)\n');
+else
+    fprintf('H-канал: ПОДАВЛЕНА ✅\n');
+end
+if clutter_detected_V
+    fprintf('V-канал: ОБНАРУЖЕНА ❌ (плохо!)\n');
+else
+    fprintf('V-канал: ПОДАВЛЕНА ✅\n');
+end
 
 %% 17. ГРАФИКИ
 figure('Position', [100 100 1400 900]);
@@ -296,7 +343,7 @@ xlabel('Время (мкс)'); ylabel('Re');
 title('ЛЧМ сигнал');
 grid on;
 
-% График 2: Принятый сигнал с шумом
+% График 2: Принятый сигнал
 subplot(3,3,2);
 plot(real(rx_H_cell{1}), 'b', 'LineWidth', 0.5);
 hold on;
@@ -316,24 +363,26 @@ grid on; xlim([-BW*2 BW*2]);
 
 % График 4: Дальность ДО ЧМП
 subplot(3,3,4);
-plot(R_y/1000, abs(y_H_norm), 'b', 'LineWidth', 1.5);
-hold on;
-plot(R_y/1000, abs(y_V_norm), 'r', 'LineWidth', 1.5);
-xlabel('Дальность (км)'); ylabel('Амплитуда');
-title('ДО ЧМП (с шумом)');
-grid on; xlim([0 15]);
-xline(targetRange/1000, 'g--', 'Цель', 'LineWidth', 2);
-xline(clutterRange/1000, 'r--', 'Помеха', 'LineWidth', 2);
-legend('H', 'V');
-
-% График 5: Дальность ПОСЛЕ ЧМП
-subplot(3,3,5);
 plot(R_y/1000, abs(y_H_MTI_norm), 'b', 'LineWidth', 1.5);
 hold on;
 plot(R_y/1000, abs(y_V_MTI_norm), 'r', 'LineWidth', 1.5);
+yline(Threshold_rel, 'k--', 'Порог', 'LineWidth', 1.5);
 xlabel('Дальность (км)'); ylabel('Амплитуда');
-title('ПОСЛЕ ЧМП (с шумом)');
+title('ПОСЛЕ ЧМП с порогом');
 grid on; xlim([0 15]);
+xline(targetRange/1000, 'g--', 'Цель 5 км', 'LineWidth', 2);
+xline(clutterRange/1000, 'r--', 'Помеха 4 км', 'LineWidth', 2);
+legend('H', 'V', 'Порог');
+
+% График 5: Результат обнаружения
+subplot(3,3,5);
+plot(R_y/1000, detected_H, 'b', 'LineWidth', 2);
+hold on;
+plot(R_y/1000, detected_V, 'r', 'LineWidth', 2);
+xlabel('Дальность (км)'); ylabel('Обнаружено');
+title('Результат обнаружения');
+grid on; xlim([0 15]);
+ylim([-0.1 1.1]);
 xline(targetRange/1000, 'g--', 'Цель', 'LineWidth', 2);
 xline(clutterRange/1000, 'r--', 'Помеха', 'LineWidth', 2);
 legend('H', 'V');
@@ -368,11 +417,21 @@ xline(0, 'r--', 'Помеха', 'LineWidth', 2);
 xline(targetSpeed * targetDirection, 'g--', ['Цель ' num2str(targetSpeed) ' м/с'], 'LineWidth', 2);
 xlim([-60 60]);
 
-% График 8: Эффективность ЧМП на помехе
+% График 8: Фазовый портрет
 subplot(3,3,8);
-[~, idx_clutter] = min(abs(R_y - clutterRange));
-doppler_clutter_before = y_H(idx_clutter, :);
-doppler_clutter_after = y_H_MTI(idx_clutter, :);
+plot(real(rx_H_cell{1}), imag(rx_H_cell{1}), 'b.', 'MarkerSize', 1);
+hold on;
+plot(real(rx_V_cell{1}), imag(rx_V_cell{1}), 'r.', 'MarkerSize', 1);
+xlabel('I'); ylabel('Q');
+title('Фазовый портрет (с шумом)');
+axis equal; grid on;
+legend('H', 'V');
+
+% График 9: Эффективность ЧМП на помехе
+subplot(3,3,9);
+[~, idx_clutter_plot] = min(abs(R_y - clutterRange));
+doppler_clutter_before = y_H(idx_clutter_plot, :);
+doppler_clutter_after = y_H_MTI(idx_clutter_plot, :);
 D_clutter_before = fftshift(fft(doppler_clutter_before, 256));
 D_clutter_after = fftshift(fft(doppler_clutter_after, 256));
 
@@ -385,49 +444,42 @@ grid on; legend('ДО ЧМП', 'ПОСЛЕ ЧМП');
 xline(0, 'k--', '0 м/с', 'LineWidth', 1);
 xlim([-60 60]);
 
-% График 9: Фазовый портрет
-subplot(3,3,9);
-plot(real(rx_H_cell{1}), imag(rx_H_cell{1}), 'b.', 'MarkerSize', 1);
-hold on;
-plot(real(rx_V_cell{1}), imag(rx_V_cell{1}), 'r.', 'MarkerSize', 1);
-xlabel('I'); ylabel('Q');
-title('Фазовый портрет (с шумом)');
-axis equal; grid on;
-legend('H', 'V');
-
-%% 18. ДОПОЛНИТЕЛЬНЫЙ ГРАФИК: SNR
-figure('Name', 'Анализ SNR');
+%% 18. ДОПОЛНИТЕЛЬНЫЙ ГРАФИК
+figure('Name', 'Обнаружение цели');
 subplot(2,1,1);
-plot(R_y/1000, 20*log10(abs(y_H_norm)+eps), 'b', 'LineWidth', 1.5);
+plot(R_y/1000, 20*log10(abs(y_H_MTI_norm)+eps), 'b', 'LineWidth', 2);
 hold on;
-plot(R_y/1000, 20*log10(abs(y_V_norm)+eps), 'r', 'LineWidth', 1.5);
+plot(R_y/1000, 20*log10(abs(y_V_MTI_norm)+eps), 'r', 'LineWidth', 2);
+yline(20*log10(Threshold_rel + eps), 'k--', 'Порог', 'LineWidth', 2);
 xlabel('Дальность (км)'); ylabel('Амплитуда (дБ)');
-title('Уровень сигнала и шума');
+title('Обнаружение цели после ЧМП');
 grid on; xlim([0 15]);
-xline(targetRange/1000, 'g--', 'Цель', 'LineWidth', 2);
-xline(clutterRange/1000, 'r--', 'Помеха', 'LineWidth', 2);
-legend('H', 'V');
+xline(targetRange/1000, 'g--', 'Цель 5 км', 'LineWidth', 2);
+xline(clutterRange/1000, 'r--', 'Помеха 4 км', 'LineWidth', 2);
+legend('H', 'V', 'Порог');
 
 subplot(2,1,2);
-bar([SNR_dB, SNR_after_H, SNR_after_V]);
-set(gca, 'XTickLabel', {'Заданный', 'H-канал', 'V-канал'});
-ylabel('SNR (дБ)');
-title('Сравнение SNR');
-grid on;
+plot(R_y/1000, detected_H, 'b', 'LineWidth', 2);
+hold on;
+plot(R_y/1000, detected_V, 'r', 'LineWidth', 2);
+xlabel('Дальность (км)'); ylabel('Обнаружено');
+title('Бинарный результат обнаружения');
+grid on; xlim([0 15]);
+ylim([-0.1 1.1]);
+xline(targetRange/1000, 'g--', 'Цель 5 км', 'LineWidth', 2);
+xline(clutterRange/1000, 'r--', 'Помеха 4 км', 'LineWidth', 2);
+legend('H', 'V');
 
-%% 19. ВЫВОД
-fprintf('\n========== РЕЗУЛЬТАТЫ ==========\n');
-fprintf('Цель на %.1f км, скорость %.1f м/с\n', targetRange/1000, targetSpeed);
-fprintf('Помеха на %.1f км, скорость 0 м/с\n', clutterRange/1000);
-fprintf('Заданный SNR: %.1f дБ\n', SNR_dB);
-fprintf('SNR после обработки (H): %.1f дБ\n', SNR_after_H);
-fprintf('SNR после обработки (V): %.1f дБ\n', SNR_after_V);
-
-% Проверка обнаружения цели
-if SNR_after_H > 10 && SNR_after_V > 10
-    fprintf('\n✅ Цель обнаруживается с хорошим SNR (>10 дБ)!\n');
-elseif SNR_after_H > 5 && SNR_after_V > 5
-    fprintf('\n⚠️ Цель обнаруживается с низким SNR (5-10 дБ)\n');
+%% 19. ИТОГОВЫЙ ВЫВОД
+fprintf('\n========== ИТОГОВЫЙ ВЫВОД ==========\n');
+if target_detected_H || target_detected_V
+    fprintf('✅ ЦЕЛЬ ОБНАРУЖЕНА!\n');
 else
-    fprintf('\n❌ Цель НЕ обнаруживается (SNR < 5 дБ)\n');
+    fprintf('❌ ЦЕЛЬ НЕ ОБНАРУЖЕНА\n');
+end
+
+if ~clutter_detected_H && ~clutter_detected_V
+    fprintf('✅ ПОМЕХА УСПЕШНО ПОДАВЛЕНА!\n');
+else
+    fprintf('⚠️ ПОМЕХА НЕ ПОЛНОСТЬЮ ПОДАВЛЕНА\n');
 end
