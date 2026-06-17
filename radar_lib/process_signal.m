@@ -1,5 +1,9 @@
 function [detected_H, detected_V, results, R_y, y_H_MTI_norm, y_V_MTI_norm] = process_signal(rx_H_cell, rx_V_cell, x_active, cfg)
     % PROCESS_SIGNAL - Полный цикл обработки сигнала
+    %
+    %   Управление диагностикой через cfg.enable:
+    %       VERBOSE     - подробный вывод в консоль
+    %       DIAGNOSTICS - диагностика ЧМП
 
     % === Согласованный фильтр ===
     if cfg.enable.MATCHED_FILTER && cfg.enable.CHANNEL
@@ -19,8 +23,11 @@ function [detected_H, detected_V, results, R_y, y_H_MTI_norm, y_V_MTI_norm] = pr
             y_H(1:len_H, pulse) = y_H_cell{pulse};
             y_V(1:len_V, pulse) = y_V_cell{pulse};
         end
+        if cfg.enable.VERBOSE
+            fprintf('Согласованная фильтрация выполнена\n');
+        end
     else
-        if cfg.enable.CHANNEL
+        if cfg.enable.CHANNEL && cfg.enable.VERBOSE
             fprintf('Согласованный фильтр ВЫКЛЮЧЕН\n');
         end
         max_len = length(rx_H_cell{1});
@@ -34,28 +41,29 @@ function [detected_H, detected_V, results, R_y, y_H_MTI_norm, y_V_MTI_norm] = pr
         end
     end
 
-    % ===== ДИАГНОСТИКА: проверяем сигнал на дальности помехи =====
-    % Найдём индекс помехи в полных данных
-    t_y = (0:length(y_H)-1)/cfg.Fs;
-    t_y_corrected = t_y - (cfg.N_active - 1)/cfg.Fs;
-    R_y_full = 3e8 * t_y_corrected / 2;
-    [~, idx_clutter_full] = min(abs(R_y_full - cfg.clutterRange));
-    
-    fprintf('\n=== ДИАГНОСТИКА ЧМП ===\n');
-    fprintf('Индекс помехи: %d\n', idx_clutter_full);
-    
-    % Сигнал помехи на 1-м и 2-м импульсе
-    signal_1 = y_H(idx_clutter_full, 1);
-    signal_2 = y_H(idx_clutter_full, 2);
-    fprintf('Помеха (имп.1): %.3e\n', abs(signal_1));
-    fprintf('Помеха (имп.2): %.3e\n', abs(signal_2));
-    fprintf('Разница: %.3e\n', abs(signal_2 - signal_1));
-    
-    % Проверка: если разница < 1e-10, значит помеха постоянная
-    if abs(signal_2 - signal_1) < 1e-10
-        fprintf('✅ Помеха ПОСТОЯННАЯ (ЧМП должен сработать)\n');
-    else
-        fprintf('⚠️ Помеха МЕНЯЕТСЯ (ЧМП может не сработать)\n');
+    % ===== ДИАГНОСТИКА ЧМП (управляется DIAGNOSTICS) =====
+    if cfg.enable.DIAGNOSTICS && cfg.enable.CHANNEL
+        % Найдём индекс помехи в полных данных
+        t_y = (0:length(y_H)-1)/cfg.Fs;
+        t_y_corrected = t_y - (cfg.N_active - 1)/cfg.Fs;
+        R_y_full = 3e8 * t_y_corrected / 2;
+        [~, idx_clutter_full] = min(abs(R_y_full - cfg.clutterRange));
+        
+        fprintf('\n=== ДИАГНОСТИКА ЧМП ===\n');
+        fprintf('Индекс помехи: %d\n', idx_clutter_full);
+        
+        % Сигнал помехи на 1-м и 2-м импульсе
+        signal_1 = y_H(idx_clutter_full, 1);
+        signal_2 = y_H(idx_clutter_full, 2);
+        fprintf('Помеха (имп.1): %.3e\n', abs(signal_1));
+        fprintf('Помеха (имп.2): %.3e\n', abs(signal_2));
+        fprintf('Разница: %.3e\n', abs(signal_2 - signal_1));
+        
+        if abs(signal_2 - signal_1) < 1e-10
+            fprintf('✅ Помеха ПОСТОЯННАЯ (ЧМП должен сработать)\n');
+        else
+            fprintf('⚠️ Помеха МЕНЯЕТСЯ (ЧМП может не сработать)\n');
+        end
     end
 
     % === ЧМП-фильтр ===
@@ -65,13 +73,16 @@ function [detected_H, detected_V, results, R_y, y_H_MTI_norm, y_V_MTI_norm] = pr
         y_H_MTI = [y_H_MTI, zeros(size(y_H_MTI, 1), 1)];
         y_V_MTI = [y_V_MTI, zeros(size(y_V_MTI, 1), 1)];
         
-        % Проверка подавления на дальности помехи
-        y_clutter_after = y_H_MTI(idx_clutter_full, :);
-        fprintf('Мощность помехи ПОСЛЕ ЧМП: %.3e\n', mean(abs(y_clutter_after).^2));
+        if cfg.enable.DIAGNOSTICS && cfg.enable.CHANNEL
+            y_clutter_after = y_H_MTI(idx_clutter_full, :);
+            fprintf('Мощность помехи ПОСЛЕ ЧМП: %.3e\n', mean(abs(y_clutter_after).^2));
+        end
         
-        fprintf('ЧМП-фильтр применен\n');
+        if cfg.enable.VERBOSE
+            fprintf('ЧМП-фильтр применен\n');
+        end
     else
-        if cfg.enable.CHANNEL
+        if cfg.enable.CHANNEL && cfg.enable.VERBOSE
             fprintf('ЧМП-фильтр ВЫКЛЮЧЕН\n');
         end
         y_H_MTI = y_H;
@@ -84,9 +95,11 @@ function [detected_H, detected_V, results, R_y, y_H_MTI_norm, y_V_MTI_norm] = pr
         y_V_accum = sum(y_V, 2);
         y_H_MTI_accum = sum(y_H_MTI, 2);
         y_V_MTI_accum = sum(y_V_MTI, 2);
-        fprintf('Когерентное накопление применено (%d импульсов)\n', cfg.NumPulses);
+        if cfg.enable.VERBOSE
+            fprintf('Когерентное накопление применено (%d импульсов)\n', cfg.NumPulses);
+        end
     else
-        if cfg.enable.CHANNEL
+        if cfg.enable.CHANNEL && cfg.enable.VERBOSE
             fprintf('Когерентное накопление ВЫКЛЮЧЕНО\n');
         end
         y_H_accum = y_H(:, 1);
@@ -131,7 +144,9 @@ function [detected_H, detected_V, results, R_y, y_H_MTI_norm, y_V_MTI_norm] = pr
     else
         detected_H = false(size(R_y));
         detected_V = false(size(R_y));
-        fprintf('\n--- ОБНАРУЖЕНИЕ ВЫКЛЮЧЕНО ---\n');
+        if cfg.enable.VERBOSE
+            fprintf('\n--- ОБНАРУЖЕНИЕ ВЫКЛЮЧЕНО ---\n');
+        end
     end
 end
 

@@ -3,14 +3,6 @@ function cfg = config(varargin)
     %
     %   cfg = config() - параметры по умолчанию
     %   cfg = config('SNR_dB', 15) - с измененным параметром
-    %
-    %   Параметры (можно передавать парами 'имя', значение):
-    %       fc, BW, PulseWidth, PRF, Fs, NumPulses
-    %       antenna_type, altitude_radar, Diameter, AntennaEfficiency
-    %       targetRange, targetSpeed, targetDirection, targetRCS
-    %       clutterRange, clutterRCS, clutterSpeed
-    %       SNR_dB, Pfa, NoiseFigure_dB, Threshold_rel
-    %       enable.CHANNEL, enable.NOISE, enable.MTI, enable.DETECTION, enable.PLOTS
 
     %% =====================================================================
     %  1. ПАРАМЕТРЫ РАДАРА
@@ -25,83 +17,91 @@ function cfg = config(varargin)
     %% =====================================================================
     %  2. АНТЕННА
     %  =====================================================================
-    % Тип антенны: 'parabolic' - зеркальная, 'phased_array' - ФАР, 'isotropic' - изотропная
-    cfg.antenna_type = 'parabolic';
-    
-    % Высота антенны над землей, м
-    cfg.altitude_radar = 10;
-    
-    % --- Для зеркальной антенны ---
+    cfg.antenna_type = 'parabolic'; % 'parabolic', 'phased_array', 'isotropic'
+    cfg.altitude_radar = 10;        % Высота антенны над землей, м
     cfg.Diameter = 1.0;             % Диаметр зеркала, м
     cfg.AntennaEfficiency = 0.6;    % КПД антенны (0-1)
     
-    % --- Для ФАР (phased_array) ---
-    cfg.num_elements = 8;           % Количество элементов по горизонтали/вертикали (8x8 = 64 элемента)
-    cfg.element_spacing = 0.05;     % Расстояние между элементами, м (для 3 ГГц λ=0.1 м, spacing=λ/2)
-    cfg.taper_type = 'uniform';     % Тип амплитудного распределения: 'uniform', 'taylor', 'chebyshev'
-    cfg.steering_angle_az = 0;      % Угол управления лучом по азимуту, град
-    cfg.steering_angle_el = 0;      % Угол управления лучом по углу места, град
+    % Для ФАР
+    cfg.num_elements = 8;
+    cfg.element_spacing = 0.05;
+    cfg.taper_type = 'uniform';
+    cfg.steering_angle_az = 0;
+    cfg.steering_angle_el = 0;
 
     %% =====================================================================
-    %  3. ОБЪЕКТЫ (ЦЕЛИ И ПОМЕХИ)
+    %  3. ОБЪЕКТЫ
     %  =====================================================================
     % --- Цель ---
-    cfg.targetRange = 5000;         % Дальность до цели, м
-    cfg.targetSpeed = 25;           % Скорость цели, м/с
-    cfg.targetDirection = 1;        % 1 - приближается, -1 - удаляется
-    cfg.targetRCS = 10;             % ЭПР цели, кв.м
-    cfg.targetHeight = 5;           % Высота цели, м
+    cfg.targetRange = 5000;
+    cfg.targetSpeed = 25;
+    cfg.targetDirection = 1;
+    cfg.targetRCS = 10;
+    cfg.targetHeight = 5;
 
     % --- Помеха ---
-    cfg.clutterRange = 4000;        % Дальность до помехи, м
-    cfg.clutterRCS = 0;           % ЭПР помехи, кв.м
-    cfg.clutterSpeed = 0.1;           % Скорость помехи, м/с
-    cfg.clutterHeight = 5;          % Высота помехи, м
+    cfg.clutterRange = 4000;
+    cfg.clutterRCS = 100;           % 0 - отключить помеху
+    cfg.clutterSpeed = 0;
+    cfg.clutterHeight = 5;
 
     %% =====================================================================
-    %  4. СРЕДА РАСПРОСТРАНЕНИЯ
+    %  4. СРЕДА
     %  =====================================================================
-    cfg.AtmosLoss_dB_per_km = 0.01; % Атмосферное затухание, дБ/км
+    cfg.AtmosLoss_dB_per_km = 0.01;
 
     %% =====================================================================
     %  5. ПОЛЯРИЗАЦИОННАЯ МАТРИЦА (общая для всех объектов)
     %  =====================================================================
-    cfg.polarization.HH_amp = 10;   % Амплитуда HH, кв.м
-    cfg.polarization.HH_phase = 0;  % Фаза HH, град
-    cfg.polarization.HV_amp = 3;    % Амплитуда HV, кв.м
-    cfg.polarization.HV_phase = 45; % Фаза HV, град
-    cfg.polarization.VH_amp = 3;    % Амплитуда VH, кв.м
-    cfg.polarization.VH_phase = -30;% Фаза VH, град
-    cfg.polarization.VV_amp = 8;    % Амплитуда VV, кв.м
-    cfg.polarization.VV_phase = 20; % Фаза VV, град
+    cfg.polarization.HH_amp = 10;
+    cfg.polarization.HH_phase = 0;
+    cfg.polarization.HV_amp = 3;
+    cfg.polarization.HV_phase = 45;
+    cfg.polarization.VH_amp = 3;
+    cfg.polarization.VH_phase = -30;
+    cfg.polarization.VV_amp = 8;
+    cfg.polarization.VV_phase = 20;
 
     %% =====================================================================
     %  6. ПАРАМЕТРЫ ОБРАБОТКИ
     %  =====================================================================
-    cfg.SNR_dB = 20;                % Отношение сигнал/шум, дБ
-    cfg.Pfa = 1e-6;                 % Вероятность ложной тревоги
-    cfg.NoiseFigure_dB = 5;         % Коэффициент шума приемника, дБ
-    cfg.Threshold_rel = 0.25;       % Относительный порог (0-1)
+    cfg.SNR_dB = 20;
+    cfg.Pfa = 1e-6;
+    cfg.NoiseFigure_dB = 5;
+    cfg.Threshold_rel = 0.25;
 
     %% =====================================================================
-    %  7. ФЛАГИ УПРАВЛЕНИЯ
+    %  7. ФЛАГИ УПРАВЛЕНИЯ (ВСЕ В ОДНОМ МЕСТЕ!)
     %  =====================================================================
-    cfg.enable.CHANNEL = true;        % Распространение (цель + помеха)
-    cfg.enable.NOISE = true;          % Добавление шума
-    cfg.enable.MATCHED_FILTER = true; % Согласованный фильтр
-    cfg.enable.MTI = true;            % ЧМП-фильтр (подавление помех)
-    cfg.enable.ACCUMULATION = true;   % Когерентное накопление
-    cfg.enable.DETECTION = true;      % Обнаружение (порог)
-    cfg.enable.DOPPLER = true;        % Доплеровская обработка
-    cfg.enable.PLOTS = true;          % Отрисовка графиков
-    cfg.enable.SNR_ANALYSIS = true;   % Дополнительный график SNR
+    
+    % --- Основные этапы ---
+    cfg.enable.CHANNEL = true;          % Распространение сигнала
+    cfg.enable.CLUTTER = true;          % Добавление помехи (clutter)
+    cfg.enable.NOISE = true;            % Добавление шума
+    cfg.enable.MATCHED_FILTER = true;   % Согласованный фильтр
+    cfg.enable.MTI = true;              % ЧМП-фильтр
+    cfg.enable.ACCUMULATION = true;     % Когерентное накопление
+    cfg.enable.DETECTION = true;        % Обнаружение
+    cfg.enable.DOPPLER = true;          % Доплеровская обработка
+    
+    % --- Графики (по отдельности!) ---
+    cfg.enable.PLOTS = true;            % Основной figure (9 графиков)
+    cfg.enable.PLOTS_RANGE = true;      % График дальности
+    cfg.enable.PLOTS_DOPPLER = true;    % Доплеровские графики
+    cfg.enable.PLOTS_PHASE = true;      % Фазовый портрет
+    cfg.enable.PLOTS_SNR = true;        % Анализ SNR
+    cfg.enable.PLOTS_DIAG = true;       % Диагностический график (импульсы)
+    
+    % --- Диагностика ---
+    cfg.enable.VERBOSE = true;          % Подробный вывод в консоль
+    cfg.enable.DIAGNOSTICS = true;      % Диагностика ЧМП
 
     %% =====================================================================
-    %  8. ПРОИЗВОДНЫЕ ПАРАМЕТРЫ (НЕ ИЗМЕНЯТЬ ВРУЧНУЮ)
+    %  8. ПРОИЗВОДНЫЕ ПАРАМЕТРЫ
     %  =====================================================================
-    cfg.PRI = 1 / cfg.PRF;          % Период повторения, с
-    cfg.lambda = 3e8 / cfg.fc;      % Длина волны, м
-    cfg.N_active = round(cfg.PulseWidth * cfg.Fs);  % Длина активной части
+    cfg.PRI = 1 / cfg.PRF;
+    cfg.lambda = 3e8 / cfg.fc;
+    cfg.N_active = round(cfg.PulseWidth * cfg.Fs);
 
     %% =====================================================================
     %  9. ОБНОВЛЕНИЕ ПАРАМЕТРОВ ИЗ АРГУМЕНТОВ
@@ -118,29 +118,29 @@ function cfg = config(varargin)
     end
 
     %% =====================================================================
-    %  10. ПЕЧАТЬ КОНФИГУРАЦИИ (если включено)
+    %  10. ПЕЧАТЬ КОНФИГУРАЦИИ
     %  =====================================================================
-    if nargout == 0
+    if nargout == 0 || cfg.enable.VERBOSE
         fprintf('\n========================================\n');
         fprintf('КОНФИГУРАЦИЯ РАДАРА\n');
         fprintf('========================================\n');
         fprintf('Несущая частота:  %.2f ГГц\n', cfg.fc/1e9);
-        fprintf('Полоса сигнала:   %.2f МГц\n', cfg.BW/1e6);
-        fprintf('Длительность:     %.2f мкс\n', cfg.PulseWidth*1e6);
+        fprintf('Полоса:           %.2f МГц\n', cfg.BW/1e6);
         fprintf('PRF:              %.1f Гц\n', cfg.PRF);
         fprintf('Импульсов:        %d\n', cfg.NumPulses);
-        fprintf('Тип антенны:      %s\n', cfg.antenna_type);
-        fprintf('Высота антенны:   %.1f м\n', cfg.altitude_radar);
-        if strcmp(cfg.antenna_type, 'parabolic')
-            fprintf('Диаметр:          %.2f м\n', cfg.Diameter);
-            fprintf('КПД:              %.2f\n', cfg.AntennaEfficiency);
-        elseif strcmp(cfg.antenna_type, 'phased_array')
-            fprintf('Элементов:        %dx%d\n', cfg.num_elements, cfg.num_elements);
-            fprintf('Шаг решётки:      %.3f м\n', cfg.element_spacing);
-        end
         fprintf('Цель:             %.1f км, %.1f м/с\n', cfg.targetRange/1000, cfg.targetSpeed);
-        fprintf('Помеха:           %.1f км, %.1f м/с\n', cfg.clutterRange/1000, cfg.clutterSpeed);
+        fprintf('Помеха:           %.1f км, RCS=%.1f\n', cfg.clutterRange/1000, cfg.clutterRCS);
         fprintf('SNR:              %.1f дБ\n', cfg.SNR_dB);
+        fprintf('----------------------------------------\n');
+        fprintf('ФЛАГИ:\n');
+        fprintf('  CLUTTER:   %s\n', iif(cfg.enable.CLUTTER, 'ON', 'OFF'));
+        fprintf('  NOISE:     %s\n', iif(cfg.enable.NOISE, 'ON', 'OFF'));
+        fprintf('  MTI:       %s\n', iif(cfg.enable.MTI, 'ON', 'OFF'));
+        fprintf('  DETECTION: %s\n', iif(cfg.enable.DETECTION, 'ON', 'OFF'));
         fprintf('========================================\n');
     end
+end
+
+function out = iif(cond, t, f)
+    if cond, out = t; else, out = f; end
 end
