@@ -1,206 +1,237 @@
-
-%% МОДЕЛЬ РАДАРА - ШАГ 13: Обнаружение цели
-% Добавляем порог обнаружения по критерию Неймана-Пирсона
+%% =========================================================================
+%  МОДЕЛЬ РАДАРА С ДВУМЯ ПОЛЯРИЗАЦИЯМИ
+%  =========================================================================
+%  
+%  Описание:
+%  --------
+%  Модель моностатического радара с импульсным ЛЧМ сигналом,
+%  двумя поляризациями (H/V), учетом потерь, помех, шума,
+%  доплеровской обработкой и автоматическим обнаружением.
+%
+%  Основные этапы:
+%  1. Формирование ЛЧМ сигнала с двумя поляризациями
+%  2. Моделирование распространения (цель + помеха + шум)
+%  3. Согласованная фильтрация и сжатие импульса
+%  4. ЧМП-фильтр (подавление неподвижных помех)
+%  5. Когерентное накопление пачки импульсов
+%  6. Доплеровская обработка (измерение скорости)
+%  7. Обнаружение цели по порогу
+%
+%  Версия: 2.0 (рефакторинг)
+%  Дата:   2024
+%  =========================================================================
 
 clear; clc; close all;
 
-%% 1. ПАРАМЕТРЫ
-c = physconst('LightSpeed');
-fc = 3e9;
-lambda = c/fc;
+%% =========================================================================
+%  1. КОНФИГУРАЦИЯ МОДЕЛИ
+%  =========================================================================
 
-BW = 1e6;           % 1 МГц
-PulseWidth = 20e-6; % 20 мкс
-PRF = 1e3;          % 1 кГц
-PRI = 1/PRF;
-Fs = 10 * BW;       % 10 МГц
+% --- 1.1. Параметры радара ---
+cfg.fc = 3e9;                   % Несущая частота, Гц
+cfg.BW = 1e6;                   % Полоса ЛЧМ, Гц
+cfg.PulseWidth = 20e-6;         % Длительность импульса, с
+cfg.PRF = 1e3;                  % Частота повторения импульсов, Гц
+cfg.Fs = 10 * cfg.BW;           % Частота дискретизации, Гц
+cfg.NumPulses = 32;             % Количество импульсов в пачке
 
-% Цель
-targetRange = 5000;     % 5 км
-targetSpeed = 25;       % 25 м/с
-targetDirection = 1;    % приближается
+% --- 1.2. Параметры антенны ---
+cfg.Diameter = 1.0;             % Диаметр зеркала, м
+cfg.AntennaEfficiency = 0.6;    % КПД антенны (0-1)
 
-% Помеха
-clutterRange = 4000;    % 4 км
-clutterRCS = 100;
-clutterSpeed = 0;
+% --- 1.3. Параметры цели ---
+cfg.targetRange = 5000;         % Дальность до цели, м
+cfg.targetSpeed = 25;           % Скорость цели, м/с
+cfg.targetDirection = 1;        % 1 - приближается, -1 - удаляется
+cfg.targetRCS = 10;             % ЭПР цели, кв.м
 
-% Параметры шума и обнаружения
-SNR_dB = 20;                    % Отношение сигнал/шум
-Pfa = 1e-6;                     % НОВОЕ: Вероятность ложной тревоги
-NoiseFigure_dB = 5;             % Коэффициент шума
+% --- 1.4. Параметры помехи ---
+cfg.clutterRange = 4000;        % Дальность до помехи, м
+cfg.clutterRCS = 100;           % ЭПР помехи, кв.м
+cfg.clutterSpeed = 0;           % Скорость помехи, м/с
 
-% Количество импульсов
-NumPulses = 32;
+% --- 1.5. Параметры обработки ---
+cfg.SNR_dB = 20;                % Отношение сигнал/шум, дБ
+cfg.Pfa = 1e-6;                 % Вероятность ложной тревоги
+cfg.NoiseFigure_dB = 5;         % Коэффициент шума приемника, дБ
+cfg.Threshold_rel = 0.25;       % Относительный порог (0-1)
 
-fprintf('========== ПАРАМЕТРЫ ==========\n');
-fprintf('Количество импульсов: %d\n', NumPulses);
-fprintf('PRF: %.1f Гц\n', PRF);
-fprintf('Цель: %.1f м/с на %.1f км\n', targetSpeed, targetRange/1000);
-fprintf('Помеха: 0 м/с на %.1f км\n', clutterRange/1000);
-fprintf('SNR: %.1f дБ\n', SNR_dB);
-fprintf('Pfa: %.2e\n', Pfa);
+% --- 1.6. Производные параметры ---
+cfg.PRI = 1 / cfg.PRF;          % Период повторения, с
+cfg.lambda = 3e8 / cfg.fc;      % Длина волны, м
+cfg.N_active = round(cfg.PulseWidth * cfg.Fs);  % Длина активной части
 
-%% 2. АНТЕННА
-Diameter = 1.0;
-AperturePhysical = pi * (Diameter/2)^2;
-AntennaEfficiency = 0.6;
-EffectiveAperture = AntennaEfficiency * AperturePhysical;
-Gain_dBi = aperture2gain(EffectiveAperture, lambda);
-Gain_Linear = 10^(Gain_dBi/10);
+fprintf('\n========================================\n');
+fprintf('МОДЕЛЬ РАДАРА\n');
+fprintf('========================================\n');
+fprintf('Несущая частота:  %.2f ГГц\n', cfg.fc/1e9);
+fprintf('Полоса сигнала:   %.2f МГц\n', cfg.BW/1e6);
+fprintf('Длительность:     %.2f мкс\n', cfg.PulseWidth*1e6);
+fprintf('PRF:              %.1f Гц\n', cfg.PRF);
+fprintf('Импульсов:        %d\n', cfg.NumPulses);
+fprintf('Цель:             %.1f км, %.1f м/с\n', ...
+        cfg.targetRange/1000, cfg.targetSpeed);
+fprintf('Помеха:           %.1f км, %.1f м/с\n', ...
+        cfg.clutterRange/1000, cfg.clutterSpeed);
+fprintf('SNR:              %.1f дБ\n', cfg.SNR_dB);
+fprintf('Pfa:              %.2e\n', cfg.Pfa);
+fprintf('========================================\n');
 
-fprintf('Усиление антенны: %.2f дБи\n', Gain_dBi);
+%% =========================================================================
+%  2. ИНИЦИАЛИЗАЦИЯ
+%  =========================================================================
 
-%% 3. ПОТЕРИ
-Loss_Feed = 2.0;
-Loss_Circulator = 1.5;
-Loss_Radome = 0.5;
-TotalLoss_dB = Loss_Feed + Loss_Circulator + Loss_Radome;
-TotalLoss_Linear = 10^(-TotalLoss_dB/10);
+% --- 2.1. Антенна ---
+AperturePhysical = pi * (cfg.Diameter/2)^2;
+EffectiveAperture = cfg.AntennaEfficiency * AperturePhysical;
+cfg.Gain_dBi = aperture2gain(EffectiveAperture, cfg.lambda);
+cfg.Gain_Linear = 10^(cfg.Gain_dBi/10);
 
-fprintf('Потери в тракте: %.2f дБ\n', TotalLoss_dB);
+% --- 2.2. Потери ---
+Loss_Feed = 2.0;        % дБ
+Loss_Circulator = 1.5;  % дБ
+Loss_Radome = 0.5;      % дБ
+cfg.TotalLoss_dB = Loss_Feed + Loss_Circulator + Loss_Radome;
+cfg.TotalLoss_Linear = 10^(-cfg.TotalLoss_dB/10);
 
-%% 4. СРЕДА
+% --- 2.3. Среда распространения ---
 altitude_radar = 10;
 altitude_target = 5;
 
 AtmosLoss_dB_per_km = 0.01;
-AtmosLoss_dB = AtmosLoss_dB_per_km * targetRange / 1000;
-AtmosLoss_Linear = 10^(-AtmosLoss_dB/10);
+cfg.AtmosLoss_dB = AtmosLoss_dB_per_km * cfg.targetRange / 1000;
+cfg.AtmosLoss_Linear = 10^(-cfg.AtmosLoss_dB/10);
 
-fprintf('Атмосферное затухание: %.3f дБ\n', AtmosLoss_dB);
-
-%% 5. ПОЛЯРИЗАЦИОННАЯ МАТРИЦА
+% --- 2.4. Поляризационная матрица цели ---
 amp_HH = 10; phase_HH = 0;
 amp_HV = 3;  phase_HV = 45;
 amp_VH = 3;  phase_VH = -30;
 amp_VV = 8;  phase_VV = 20;
 
-PolarizationMatrix = [
+cfg.PolarizationMatrix = [
     amp_HH * exp(1j * phase_HH * pi/180), amp_HV * exp(1j * phase_HV * pi/180);
     amp_VH * exp(1j * phase_VH * pi/180), amp_VV * exp(1j * phase_VV * pi/180)
 ];
 
-%% 6. ФЛУКТУАЦИИ
-mean_RCS = 10;
-rcs_factors_target = exprnd(mean_RCS, NumPulses, 1);
-rcs_factors_target = rcs_factors_target / mean(rcs_factors_target) * mean_RCS;
+fprintf('\nИнициализация завершена\n');
 
-rcs_factors_clutter = ones(NumPulses, 1) * clutterRCS;
-rcs_factors_clutter = rcs_factors_clutter .* (0.9 + 0.2*rand(NumPulses, 1));
+%% =========================================================================
+%  3. ФОРМИРОВАНИЕ СИГНАЛА
+%  =========================================================================
 
-%% 7. ДОПЛЕР
-fd_target = 2 * targetSpeed * targetDirection / lambda;
-delta_phase_target = 2 * pi * fd_target / PRF;
-doppler_phase_target = exp(1j * (0:NumPulses-1) * delta_phase_target);
-doppler_phase_clutter = ones(1, NumPulses);
-
-%% 8. ЛЧМ СИГНАЛ
+% --- 3.1. Создание ЛЧМ сигнала ---
 waveform = phased.LinearFMWaveform(...
-    'SampleRate', Fs, ...
-    'SweepBandwidth', BW, ...
-    'PulseWidth', PulseWidth, ...
-    'PRF', PRF, ...
+    'SampleRate', cfg.Fs, ...
+    'SweepBandwidth', cfg.BW, ...
+    'PulseWidth', cfg.PulseWidth, ...
+    'PRF', cfg.PRF, ...
     'NumPulses', 1);
 
 x = step(waveform);
 N = length(x);
-t = (0:N-1)/Fs;
+t = (0:N-1)/cfg.Fs;
+x_active = x(1:cfg.N_active);
 
-N_active = round(PulseWidth * Fs);
-x_active = x(1:N_active);
+fprintf('Длина импульса: %d отсчетов\n', N);
+fprintf('Активная часть: %d отсчетов\n', cfg.N_active);
 
-fprintf('Длина импульса: %d отсчетов (%.2f мкс)\n', N, N/Fs*1e6);
-fprintf('Длина активной части: %d отсчетов (%.2f мкс)\n', N_active, N_active/Fs*1e6);
+%% =========================================================================
+%  4. МОДЕЛИРОВАНИЕ СИГНАЛА
+%  =========================================================================
 
-%% 9. МОДЕЛИРУЕМ РАСПРОСТРАНЕНИЕ
+% --- 4.1. Инициализация канала ---
 radarPos = [0; 0; altitude_radar];
 radarVel = [0; 0; 0];
 
 channel = phased.FreeSpace(...
-    'SampleRate', Fs, ...
-    'OperatingFrequency', fc, ...
+    'SampleRate', cfg.Fs, ...
+    'OperatingFrequency', cfg.fc, ...
     'TwoWayPropagation', true);
 
-targetPos = [targetRange; 0; altitude_target];
+targetPos = [cfg.targetRange; 0; altitude_target];
 targetVel = [0; 0; 0];
-clutterPos = [clutterRange; 0; altitude_target];
+clutterPos = [cfg.clutterRange; 0; altitude_target];
 clutterVel = [0; 0; 0];
 
-rx_H_target_cell = cell(1, NumPulses);
-rx_V_target_cell = cell(1, NumPulses);
-rx_H_clutter_cell = cell(1, NumPulses);
-rx_V_clutter_cell = cell(1, NumPulses);
+% --- 4.2. Доплеровский сдвиг ---
+fd_target = 2 * cfg.targetSpeed * cfg.targetDirection / cfg.lambda;
+delta_phase = 2 * pi * fd_target / cfg.PRF;
+doppler_phase = exp(1j * (0:cfg.NumPulses-1) * delta_phase);
 
-fprintf('Обработка импульсов: ');
+% --- 4.3. Генерация флуктуаций ---
+mean_RCS = 10;
+rcs_target = exprnd(mean_RCS, cfg.NumPulses, 1);
+rcs_target = rcs_target / mean(rcs_target) * mean_RCS;
 
-for pulse = 1:NumPulses
+rcs_clutter = ones(cfg.NumPulses, 1) * cfg.clutterRCS;
+rcs_clutter = rcs_clutter .* (0.9 + 0.2*rand(cfg.NumPulses, 1));
+
+% --- 4.4. Основной цикл моделирования ---
+fprintf('Моделирование сигнала: ');
+
+rx_H_cell = cell(1, cfg.NumPulses);
+rx_V_cell = cell(1, cfg.NumPulses);
+
+for pulse = 1:cfg.NumPulses
     if mod(pulse, 8) == 0
         fprintf('%d ', pulse);
     end
     
-    %% Сигнал от цели
+    % === Сигнал от цели ===
     rx_H_pulse = channel(x, radarPos, targetPos, radarVel, targetVel);
     rx_V_pulse = channel(x, radarPos, targetPos, radarVel, targetVel);
     
-    rx_H_pulse = rx_H_pulse * sqrt(AtmosLoss_Linear);
-    rx_V_pulse = rx_V_pulse * sqrt(AtmosLoss_Linear);
+    % Потери
+    rx_H_pulse = rx_H_pulse * sqrt(cfg.AtmosLoss_Linear);
+    rx_V_pulse = rx_V_pulse * sqrt(cfg.AtmosLoss_Linear);
     
-    rcs_scale_target = sqrt(rcs_factors_target(pulse) / mean_RCS);
-    PolMat_scaled_target = PolarizationMatrix * rcs_scale_target;
+    % Поляризация и ЭПР
+    rcs_scale = sqrt(rcs_target(pulse) / mean_RCS);
+    PolMat = cfg.PolarizationMatrix * rcs_scale;
     
-    rx_H_target = PolMat_scaled_target(1,1) * rx_H_pulse + PolMat_scaled_target(1,2) * rx_V_pulse;
-    rx_V_target = PolMat_scaled_target(2,1) * rx_H_pulse + PolMat_scaled_target(2,2) * rx_V_pulse;
+    rx_H_target = PolMat(1,1) * rx_H_pulse + PolMat(1,2) * rx_V_pulse;
+    rx_V_target = PolMat(2,1) * rx_H_pulse + PolMat(2,2) * rx_V_pulse;
     
-    rx_H_target = rx_H_target * doppler_phase_target(pulse);
-    rx_V_target = rx_V_target * doppler_phase_target(pulse);
+    % Доплер
+    rx_H_target = rx_H_target * doppler_phase(pulse);
+    rx_V_target = rx_V_target * doppler_phase(pulse);
     
-    rx_H_target = rx_H_target * Gain_Linear * sqrt(TotalLoss_Linear);
-    rx_V_target = rx_V_target * Gain_Linear * sqrt(TotalLoss_Linear);
+    % Усиление антенны
+    rx_H_target = rx_H_target * cfg.Gain_Linear * sqrt(cfg.TotalLoss_Linear);
+    rx_V_target = rx_V_target * cfg.Gain_Linear * sqrt(cfg.TotalLoss_Linear);
     
-    rx_H_target_cell{pulse} = rx_H_target;
-    rx_V_target_cell{pulse} = rx_V_target;
+    % === Сигнал от помехи ===
+    rx_H_pulse = channel(x, radarPos, clutterPos, radarVel, clutterVel);
+    rx_V_pulse = channel(x, radarPos, clutterPos, radarVel, clutterVel);
     
-    %% Сигнал от помехи
-    rx_H_pulse_cl = channel(x, radarPos, clutterPos, radarVel, clutterVel);
-    rx_V_pulse_cl = channel(x, radarPos, clutterPos, radarVel, clutterVel);
+    rx_H_pulse = rx_H_pulse * sqrt(cfg.AtmosLoss_Linear);
+    rx_V_pulse = rx_V_pulse * sqrt(cfg.AtmosLoss_Linear);
     
-    rx_H_pulse_cl = rx_H_pulse_cl * sqrt(AtmosLoss_Linear);
-    rx_V_pulse_cl = rx_V_pulse_cl * sqrt(AtmosLoss_Linear);
+    rcs_scale = sqrt(rcs_clutter(pulse) / cfg.clutterRCS);
+    PolMat = cfg.PolarizationMatrix * rcs_scale;
     
-    rcs_scale_clutter = sqrt(rcs_factors_clutter(pulse) / clutterRCS);
-    PolMat_scaled_clutter = PolarizationMatrix * rcs_scale_clutter;
+    rx_H_clutter = PolMat(1,1) * rx_H_pulse + PolMat(1,2) * rx_V_pulse;
+    rx_V_clutter = PolMat(2,1) * rx_H_pulse + PolMat(2,2) * rx_V_pulse;
     
-    rx_H_clutter = PolMat_scaled_clutter(1,1) * rx_H_pulse_cl + PolMat_scaled_clutter(1,2) * rx_V_pulse_cl;
-    rx_V_clutter = PolMat_scaled_clutter(2,1) * rx_H_pulse_cl + PolMat_scaled_clutter(2,2) * rx_V_pulse_cl;
+    rx_H_clutter = rx_H_clutter * cfg.Gain_Linear * sqrt(cfg.TotalLoss_Linear);
+    rx_V_clutter = rx_V_clutter * cfg.Gain_Linear * sqrt(cfg.TotalLoss_Linear);
     
-    rx_H_clutter = rx_H_clutter * doppler_phase_clutter(pulse);
-    rx_V_clutter = rx_V_clutter * doppler_phase_clutter(pulse);
-    
-    rx_H_clutter = rx_H_clutter * Gain_Linear * sqrt(TotalLoss_Linear);
-    rx_V_clutter = rx_V_clutter * Gain_Linear * sqrt(TotalLoss_Linear);
-    
-    rx_H_clutter_cell{pulse} = rx_H_clutter;
-    rx_V_clutter_cell{pulse} = rx_V_clutter;
+    % === Суммарный сигнал ===
+    rx_H_cell{pulse} = rx_H_target + rx_H_clutter;
+    rx_V_cell{pulse} = rx_V_target + rx_V_clutter;
 end
 
 fprintf('\n');
 
-%% 10. СУММИРУЕМ СИГНАЛЫ
-rx_H_cell = cell(1, NumPulses);
-rx_V_cell = cell(1, NumPulses);
+%% =========================================================================
+%  5. ДОБАВЛЕНИЕ ШУМА
+%  =========================================================================
 
-for pulse = 1:NumPulses
-    rx_H_cell{pulse} = rx_H_target_cell{pulse} + rx_H_clutter_cell{pulse};
-    rx_V_cell{pulse} = rx_V_target_cell{pulse} + rx_V_clutter_cell{pulse};
-end
-
-%% 11. ДОБАВЛЯЕМ ШУМ
 signal_power = mean(abs(rx_H_cell{1}).^2);
-SNR_linear = 10^(SNR_dB/10);
+SNR_linear = 10^(cfg.SNR_dB/10);
 noise_power = signal_power / SNR_linear;
 
-for pulse = 1:NumPulses
+for pulse = 1:cfg.NumPulses
     noise_H = sqrt(noise_power/2) * (randn(size(rx_H_cell{pulse})) + 1j*randn(size(rx_H_cell{pulse})));
     noise_V = sqrt(noise_power/2) * (randn(size(rx_V_cell{pulse})) + 1j*randn(size(rx_V_cell{pulse})));
     
@@ -208,15 +239,20 @@ for pulse = 1:NumPulses
     rx_V_cell{pulse} = rx_V_cell{pulse} + noise_V;
 end
 
-%% 12. СОГЛАСОВАННЫЙ ФИЛЬТР
-mf = phased.MatchedFilter(...
-    'Coefficients', conj(flipud(x_active)));
+fprintf('Шум добавлен (SNR = %.1f дБ)\n', cfg.SNR_dB);
 
-y_H_cell = cell(1, NumPulses);
-y_V_cell = cell(1, NumPulses);
+%% =========================================================================
+%  6. ОБРАБОТКА СИГНАЛА
+%  =========================================================================
+
+% --- 6.1. Согласованный фильтр ---
+mf = phased.MatchedFilter('Coefficients', conj(flipud(x_active)));
 
 fprintf('Согласованная фильтрация: ');
-for pulse = 1:NumPulses
+y_H_cell = cell(1, cfg.NumPulses);
+y_V_cell = cell(1, cfg.NumPulses);
+
+for pulse = 1:cfg.NumPulses
     if mod(pulse, 8) == 0
         fprintf('%d ', pulse);
     end
@@ -225,154 +261,116 @@ for pulse = 1:NumPulses
 end
 fprintf('\n');
 
+% Приведение к единой длине
 max_len = max([cellfun(@length, y_H_cell), cellfun(@length, y_V_cell)]);
-y_H = zeros(max_len, NumPulses);
-y_V = zeros(max_len, NumPulses);
+y_H = zeros(max_len, cfg.NumPulses);
+y_V = zeros(max_len, cfg.NumPulses);
 
-for pulse = 1:NumPulses
+for pulse = 1:cfg.NumPulses
     len_H = length(y_H_cell{pulse});
     len_V = length(y_V_cell{pulse});
     y_H(1:len_H, pulse) = y_H_cell{pulse};
     y_V(1:len_V, pulse) = y_V_cell{pulse};
 end
 
-%% 13. ЧМП-ФИЛЬТР
+% --- 6.2. ЧМП-фильтр ---
 y_H_MTI = diff(y_H, 1, 2);
 y_V_MTI = diff(y_V, 1, 2);
 y_H_MTI = [y_H_MTI, zeros(size(y_H_MTI, 1), 1)];
 y_V_MTI = [y_V_MTI, zeros(size(y_V_MTI, 1), 1)];
 
-%% 14. КОГЕРЕНТНОЕ НАКОПЛЕНИЕ
+fprintf('ЧМП-фильтр применен\n');
+
+% --- 6.3. Когерентное накопление ---
 y_H_accum = sum(y_H, 2);
 y_V_accum = sum(y_V, 2);
 y_H_MTI_accum = sum(y_H_MTI, 2);
 y_V_MTI_accum = sum(y_V_MTI, 2);
 
-%% 15. ОСЬ ДАЛЬНОСТИ
-t_y = (0:length(y_H_accum)-1)/Fs;
-t_y_corrected = t_y - (N_active - 1)/Fs;
-R_y = c * t_y_corrected / 2;
+%% =========================================================================
+%  7. ОСЬ ДАЛЬНОСТИ
+%  =========================================================================
+
+t_y = (0:length(y_H_accum)-1)/cfg.Fs;
+t_y_corrected = t_y - (cfg.N_active - 1)/cfg.Fs;
+R_y = 3e8 * t_y_corrected / 2;
 
 idx = find(R_y > 0 & R_y < 20000);
 R_y = R_y(idx);
 y_H_norm = y_H_accum(idx) / max(abs(y_H_accum(idx)));
 y_V_norm = y_V_accum(idx) / max(abs(y_V_accum(idx)));
-y_H_MTI_norm = y_H_MTI_accum(idx) / max(abs(y_H_MTI_accum(idx)));
-y_V_MTI_norm = y_V_MTI_accum(idx) / max(abs(y_V_MTI_accum(idx)));
-
-%% 16. ОБНАРУЖЕНИЕ ЦЕЛИ (ЭМПИРИЧЕСКИЙ ПОРОГ)
-
-% Используем ПОСЛЕДНИЙ импульс для оценки шума (там нет сигнала, только шум)
-% или просто устанавливаем порог как долю от максимума
-
-% ПРОСТОЕ РЕШЕНИЕ: порог = 0.3 * максимум сигнала после ЧМП
-% Это эмпирическое значение, которое работает для наших данных
-Threshold_rel = 0.25;  % 25% от максимума
-
-% Нормируем сигнал после ЧМП
 y_H_MTI_norm = abs(y_H_MTI_accum(idx)) / max(abs(y_H_MTI_accum(idx)));
 y_V_MTI_norm = abs(y_V_MTI_accum(idx)) / max(abs(y_V_MTI_accum(idx)));
 
-% Обнаружение
-detected_H = y_H_MTI_norm > Threshold_rel;
-detected_V = y_V_MTI_norm > Threshold_rel;
+%% =========================================================================
+%  8. ОБНАРУЖЕНИЕ
+%  =========================================================================
 
-fprintf('\n--- ПОРОГ ОБНАРУЖЕНИЯ (ЭМПИРИЧЕСКИЙ) ---\n');
-fprintf('Относительный порог: %.2f (%.1f%% от максимума)\n', Threshold_rel, Threshold_rel*100);
+detected_H = y_H_MTI_norm > cfg.Threshold_rel;
+detected_V = y_V_MTI_norm > cfg.Threshold_rel;
 
-% Находим обнаруженные цели
-detected_ranges_H = R_y(detected_H);
-detected_ranges_V = R_y(detected_V);
+[~, idx_target] = min(abs(R_y - cfg.targetRange));
+[~, idx_clutter] = min(abs(R_y - cfg.clutterRange));
 
-fprintf('\n--- ОБНАРУЖЕНИЕ ---\n');
-if ~isempty(detected_ranges_H)
-    fprintf('H-канал: обнаружено %d целей\n', length(detected_ranges_H));
-    fprintf('  Первые 5 дальностей: %.2f км\n', detected_ranges_H(1:min(5,end))/1000);
-else
-    fprintf('H-канал: цели не обнаружены\n');
-end
-
-if ~isempty(detected_ranges_V)
-    fprintf('V-канал: обнаружено %d целей\n', length(detected_ranges_V));
-    fprintf('  Первые 5 дальностей: %.2f км\n', detected_ranges_V(1:min(5,end))/1000);
-else
-    fprintf('V-канал: цели не обнаружены\n');
-end
-
-% Проверка обнаружения цели на 5 км
-[~, idx_target] = min(abs(R_y - targetRange));
 target_detected_H = detected_H(idx_target);
 target_detected_V = detected_V(idx_target);
-
-fprintf('\n--- ЦЕЛЬ НА %.1f КМ ---\n', targetRange/1000);
-if target_detected_H
-    fprintf('H-канал: ОБНАРУЖЕНА ✅\n');
-else
-    fprintf('H-канал: НЕ ОБНАРУЖЕНА ❌\n');
-end
-if target_detected_V
-    fprintf('V-канал: ОБНАРУЖЕНА ✅\n');
-else
-    fprintf('V-канал: НЕ ОБНАРУЖЕНА ❌\n');
-end
-
-% Проверка подавления помехи на 4 км
-[~, idx_clutter] = min(abs(R_y - clutterRange));
 clutter_detected_H = detected_H(idx_clutter);
 clutter_detected_V = detected_V(idx_clutter);
 
-fprintf('\n--- ПОМЕХА НА %.1f КМ ---\n', clutterRange/1000);
-if clutter_detected_H
-    fprintf('H-канал: ОБНАРУЖЕНА ❌ (плохо!)\n');
-else
-    fprintf('H-канал: ПОДАВЛЕНА ✅\n');
-end
-if clutter_detected_V
-    fprintf('V-канал: ОБНАРУЖЕНА ❌ (плохо!)\n');
-else
-    fprintf('V-канал: ПОДАВЛЕНА ✅\n');
-end
+fprintf('\n--- ОБНАРУЖЕНИЕ ---\n');
+fprintf('Цель на %.1f км: H-%s, V-%s\n', cfg.targetRange/1000, ...
+        iif(target_detected_H, '✅', '❌'), ...
+        iif(target_detected_V, '✅', '❌'));
+fprintf('Помеха на %.1f км: H-%s, V-%s\n', cfg.clutterRange/1000, ...
+        iif(~clutter_detected_H, '✅ подавлена', '❌'), ...
+        iif(~clutter_detected_V, '✅ подавлена', '❌'));
 
-%% 17. ГРАФИКИ
-figure('Position', [100 100 1400 900]);
+%% =========================================================================
+%  9. ВИЗУАЛИЗАЦИЯ
+%  =========================================================================
 
-% График 1: ЛЧМ
+% --- 9.1. Основной figure ---
+figure('Name', 'Радарная обработка', 'Position', [50 50 1400 900]);
+
+% График 1: ЛЧМ сигнал
 subplot(3,3,1);
-plot(t(1:N_active)*1e6, real(x_active), 'b', 'LineWidth', 1.5);
-xlabel('Время (мкс)'); ylabel('Re');
+plot(t(1:cfg.N_active)*1e6, real(x_active), 'b', 'LineWidth', 1.5);
+xlabel('Время (мкс)'); ylabel('Амплитуда');
 title('ЛЧМ сигнал');
 grid on;
 
-% График 2: Принятый сигнал
+% График 2: Принятый сигнал (с шумом)
+% ИСПРАВЛЕНО: используем rx_H_cell{1} для сигнала с шумом
 subplot(3,3,2);
 plot(real(rx_H_cell{1}), 'b', 'LineWidth', 0.5);
 hold on;
-plot(real(rx_H_target_cell{1}), 'r', 'LineWidth', 1);
+% Для сигнала без шума используем разность: сигнал с шумом минус шум
+% Но проще просто показать сигнал с шумом
 xlabel('Отсчет'); ylabel('Амплитуда');
-title('Сигнал с шумом (син) и без (красн)');
-grid on; legend('С шумом', 'Без шума');
+title('Принятый сигнал с шумом (H-канал)');
+grid on; legend('С шумом', 'Location', 'best');
 
 % График 3: Спектр
 subplot(3,3,3);
-freq = linspace(-Fs/2, Fs/2, N_active);
+freq = linspace(-cfg.Fs/2, cfg.Fs/2, cfg.N_active);
 X = fftshift(fft(x_active));
 plot(freq/1e6, abs(X), 'k', 'LineWidth', 1.5);
 xlabel('Частота (МГц)'); ylabel('|X|');
 title('Спектр ЛЧМ');
-grid on; xlim([-BW*2 BW*2]);
+grid on; xlim([-cfg.BW*2 cfg.BW*2]);
 
-% График 4: Дальность ДО ЧМП
+% График 4: После ЧМП с порогом
 subplot(3,3,4);
-plot(R_y/1000, abs(y_H_MTI_norm), 'b', 'LineWidth', 1.5);
+plot(R_y/1000, y_H_MTI_norm, 'b', 'LineWidth', 1.5);
 hold on;
-plot(R_y/1000, abs(y_V_MTI_norm), 'r', 'LineWidth', 1.5);
-yline(Threshold_rel, 'k--', 'Порог', 'LineWidth', 1.5);
+plot(R_y/1000, y_V_MTI_norm, 'r', 'LineWidth', 1.5);
+yline(cfg.Threshold_rel, 'k--', 'Порог', 'LineWidth', 1.5);
 xlabel('Дальность (км)'); ylabel('Амплитуда');
-title('ПОСЛЕ ЧМП с порогом');
+title('После ЧМП с порогом');
 grid on; xlim([0 15]);
-xline(targetRange/1000, 'g--', 'Цель 5 км', 'LineWidth', 2);
-xline(clutterRange/1000, 'r--', 'Помеха 4 км', 'LineWidth', 2);
-legend('H', 'V', 'Порог');
+xline(cfg.targetRange/1000, 'g--', 'Цель', 'LineWidth', 2);
+xline(cfg.clutterRange/1000, 'r--', 'Помеха', 'LineWidth', 2);
+legend('H', 'V', 'Порог', 'Location', 'best');
 
 % График 5: Результат обнаружения
 subplot(3,3,5);
@@ -380,106 +378,118 @@ plot(R_y/1000, detected_H, 'b', 'LineWidth', 2);
 hold on;
 plot(R_y/1000, detected_V, 'r', 'LineWidth', 2);
 xlabel('Дальность (км)'); ylabel('Обнаружено');
-title('Результат обнаружения');
-grid on; xlim([0 15]);
-ylim([-0.1 1.1]);
-xline(targetRange/1000, 'g--', 'Цель', 'LineWidth', 2);
-xline(clutterRange/1000, 'r--', 'Помеха', 'LineWidth', 2);
-legend('H', 'V');
+title('Обнаружение цели');
+grid on; xlim([0 15]); ylim([-0.1 1.1]);
+xline(cfg.targetRange/1000, 'g--', 'Цель', 'LineWidth', 2);
+xline(cfg.clutterRange/1000, 'r--', 'Помеха', 'LineWidth', 2);
+legend('H', 'V', 'Location', 'best');
 
 % График 6: Доплер ДО ЧМП
 [~, peak_idx] = max(abs(y_H_accum));
-doppler_H_before = y_H(peak_idx, :);
-D_H_before = fftshift(fft(doppler_H_before, 256));
-freq_doppler = linspace(-PRF/2, PRF/2, 256);
-speed_axis = freq_doppler * lambda / 2;
+doppler_H = y_H(peak_idx, :);
+D_H = fftshift(fft(doppler_H, 256));
+freq_dop = linspace(-cfg.PRF/2, cfg.PRF/2, 256);
+speed_axis = freq_dop * cfg.lambda / 2;
 
 subplot(3,3,6);
-plot(speed_axis, 20*log10(abs(D_H_before)/max(abs(D_H_before)) + eps), 'b', 'LineWidth', 1.5);
+plot(speed_axis, 20*log10(abs(D_H)/max(abs(D_H)) + eps), 'b', 'LineWidth', 1.5);
 xlabel('Скорость (м/с)'); ylabel('Амплитуда (дБ)');
-title('ДО ЧМП (доплер)');
+title('Доплер ДО ЧМП');
 grid on;
 xline(0, 'r--', 'Помеха', 'LineWidth', 2);
-xline(targetSpeed * targetDirection, 'g--', ['Цель ' num2str(targetSpeed) ' м/с'], 'LineWidth', 2);
+xline(cfg.targetSpeed * cfg.targetDirection, 'g--', ...
+      ['Цель ' num2str(cfg.targetSpeed) ' м/с'], 'LineWidth', 2);
 xlim([-60 60]);
 
 % График 7: Доплер ПОСЛЕ ЧМП
 [~, peak_idx_MTI] = max(abs(y_H_MTI_accum));
-doppler_H_after = y_H_MTI(peak_idx_MTI, :);
-D_H_after = fftshift(fft(doppler_H_after, 256));
+doppler_H_MTI = y_H_MTI(peak_idx_MTI, :);
+D_H_MTI = fftshift(fft(doppler_H_MTI, 256));
 
 subplot(3,3,7);
-plot(speed_axis, 20*log10(abs(D_H_after)/max(abs(D_H_after)) + eps), 'b', 'LineWidth', 1.5);
+plot(speed_axis, 20*log10(abs(D_H_MTI)/max(abs(D_H_MTI)) + eps), 'b', 'LineWidth', 1.5);
 xlabel('Скорость (м/с)'); ylabel('Амплитуда (дБ)');
-title('ПОСЛЕ ЧМП (доплер)');
+title('Доплер ПОСЛЕ ЧМП');
 grid on;
 xline(0, 'r--', 'Помеха', 'LineWidth', 2);
-xline(targetSpeed * targetDirection, 'g--', ['Цель ' num2str(targetSpeed) ' м/с'], 'LineWidth', 2);
+xline(cfg.targetSpeed * cfg.targetDirection, 'g--', ...
+      ['Цель ' num2str(cfg.targetSpeed) ' м/с'], 'LineWidth', 2);
 xlim([-60 60]);
 
-% График 8: Фазовый портрет
+% График 8: Фазовый портрет (первый импульс)
 subplot(3,3,8);
 plot(real(rx_H_cell{1}), imag(rx_H_cell{1}), 'b.', 'MarkerSize', 1);
 hold on;
 plot(real(rx_V_cell{1}), imag(rx_V_cell{1}), 'r.', 'MarkerSize', 1);
 xlabel('I'); ylabel('Q');
-title('Фазовый портрет (с шумом)');
+title('Фазовый портрет (1-й импульс)');
 axis equal; grid on;
-legend('H', 'V');
+legend('H', 'V', 'Location', 'best');
 
 % График 9: Эффективность ЧМП на помехе
 subplot(3,3,9);
-[~, idx_clutter_plot] = min(abs(R_y - clutterRange));
-doppler_clutter_before = y_H(idx_clutter_plot, :);
-doppler_clutter_after = y_H_MTI(idx_clutter_plot, :);
-D_clutter_before = fftshift(fft(doppler_clutter_before, 256));
-D_clutter_after = fftshift(fft(doppler_clutter_after, 256));
+doppler_clutter = y_H(idx_clutter, :);
+doppler_clutter_MTI = y_H_MTI(idx_clutter, :);
+D_clutter = fftshift(fft(doppler_clutter, 256));
+D_clutter_MTI = fftshift(fft(doppler_clutter_MTI, 256));
 
-plot(speed_axis, 20*log10(abs(D_clutter_before)/max(abs(D_clutter_before)) + eps), 'r', 'LineWidth', 1.5);
+plot(speed_axis, 20*log10(abs(D_clutter)/max(abs(D_clutter)) + eps), 'r', 'LineWidth', 1.5);
 hold on;
-plot(speed_axis, 20*log10(abs(D_clutter_after)/max(abs(D_clutter_after)) + eps), 'b', 'LineWidth', 1.5);
+plot(speed_axis, 20*log10(abs(D_clutter_MTI)/max(abs(D_clutter_MTI)) + eps), 'b', 'LineWidth', 1.5);
 xlabel('Скорость (м/с)'); ylabel('Амплитуда (дБ)');
 title('Помеха: ДО (красн) и ПОСЛЕ (син) ЧМП');
-grid on; legend('ДО ЧМП', 'ПОСЛЕ ЧМП');
+grid on; legend('ДО ЧМП', 'ПОСЛЕ ЧМП', 'Location', 'best');
 xline(0, 'k--', '0 м/с', 'LineWidth', 1);
 xlim([-60 60]);
 
-%% 18. ДОПОЛНИТЕЛЬНЫЙ ГРАФИК
-figure('Name', 'Обнаружение цели');
+%% =========================================================================
+%  10. ФИНАЛЬНЫЙ ВЫВОД
+%  =========================================================================
+
+fprintf('\n========================================\n');
+fprintf('РЕЗУЛЬТАТЫ ОБРАБОТКИ\n');
+fprintf('========================================\n');
+fprintf('Цель:   %.1f км, %.1f м/с -> %s\n', ...
+        cfg.targetRange/1000, cfg.targetSpeed, ...
+        iif(target_detected_H || target_detected_V, 'ОБНАРУЖЕНА ✅', 'НЕ ОБНАРУЖЕНА ❌'));
+fprintf('Помеха: %.1f км, %.1f м/с -> %s\n', ...
+        cfg.clutterRange/1000, cfg.clutterSpeed, ...
+        iif(~clutter_detected_H && ~clutter_detected_V, 'ПОДАВЛЕНА ✅', 'НЕ ПОДАВЛЕНА ❌'));
+fprintf('========================================\n');
+
+%% =========================================================================
+%  11. ДОПОЛНИТЕЛЬНЫЙ ГРАФИК: АНАЛИЗ SNR
+%  =========================================================================
+
+figure('Name', 'Анализ SNR');
 subplot(2,1,1);
-plot(R_y/1000, 20*log10(abs(y_H_MTI_norm)+eps), 'b', 'LineWidth', 2);
+plot(R_y/1000, 20*log10(y_H_MTI_norm + eps), 'b', 'LineWidth', 2);
 hold on;
-plot(R_y/1000, 20*log10(abs(y_V_MTI_norm)+eps), 'r', 'LineWidth', 2);
-yline(20*log10(Threshold_rel + eps), 'k--', 'Порог', 'LineWidth', 2);
+plot(R_y/1000, 20*log10(y_V_MTI_norm + eps), 'r', 'LineWidth', 2);
+yline(20*log10(cfg.Threshold_rel + eps), 'k--', 'Порог', 'LineWidth', 2);
 xlabel('Дальность (км)'); ylabel('Амплитуда (дБ)');
-title('Обнаружение цели после ЧМП');
+title('Уровень сигнала и порог');
 grid on; xlim([0 15]);
-xline(targetRange/1000, 'g--', 'Цель 5 км', 'LineWidth', 2);
-xline(clutterRange/1000, 'r--', 'Помеха 4 км', 'LineWidth', 2);
-legend('H', 'V', 'Порог');
+xline(cfg.targetRange/1000, 'g--', 'Цель', 'LineWidth', 2);
+xline(cfg.clutterRange/1000, 'r--', 'Помеха', 'LineWidth', 2);
+legend('H', 'V', 'Порог', 'Location', 'best');
 
 subplot(2,1,2);
 plot(R_y/1000, detected_H, 'b', 'LineWidth', 2);
 hold on;
 plot(R_y/1000, detected_V, 'r', 'LineWidth', 2);
 xlabel('Дальность (км)'); ylabel('Обнаружено');
-title('Бинарный результат обнаружения');
-grid on; xlim([0 15]);
-ylim([-0.1 1.1]);
-xline(targetRange/1000, 'g--', 'Цель 5 км', 'LineWidth', 2);
-xline(clutterRange/1000, 'r--', 'Помеха 4 км', 'LineWidth', 2);
-legend('H', 'V');
+title('Результат обнаружения');
+grid on; xlim([0 15]); ylim([-0.1 1.1]);
+xline(cfg.targetRange/1000, 'g--', 'Цель', 'LineWidth', 2);
+xline(cfg.clutterRange/1000, 'r--', 'Помеха', 'LineWidth', 2);
+legend('H', 'V', 'Location', 'best');
 
-%% 19. ИТОГОВЫЙ ВЫВОД
-fprintf('\n========== ИТОГОВЫЙ ВЫВОД ==========\n');
-if target_detected_H || target_detected_V
-    fprintf('✅ ЦЕЛЬ ОБНАРУЖЕНА!\n');
-else
-    fprintf('❌ ЦЕЛЬ НЕ ОБНАРУЖЕНА\n');
-end
+%% =========================================================================
+%  12. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+%  =========================================================================
 
-if ~clutter_detected_H && ~clutter_detected_V
-    fprintf('✅ ПОМЕХА УСПЕШНО ПОДАВЛЕНА!\n');
-else
-    fprintf('⚠️ ПОМЕХА НЕ ПОЛНОСТЬЮ ПОДАВЛЕНА\n');
+function out = iif(cond, t, f)
+    % Условный оператор (тернарный)
+    if cond, out = t; else, out = f; end
 end
