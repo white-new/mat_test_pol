@@ -1,22 +1,43 @@
 name: Синхронизация с Яндекс Диском
 on:
   schedule:
-    - cron: '0 3 * * *'
-  workflow_dispatch:
+    # Запускать каждые 2 часа
+    - cron: '0 */2 * * *'
+  workflow_dispatch: # Ручной запуск
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Загрузить файл на Яндекс Диск
+      - name: Загрузить файлы на Яндекс Диск
         env:
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
         run: |
-          # URL-кодируем параметры, чтобы избежать проблем с символами
-          FILE_URL=$(echo -n "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt" | jq -sRr @uri)
-          DISK_PATH=$(echo -n "disk:/git_sinc/WHITE-CIDR-RU-all.txt" | jq -sRr @uri)
+          # --- Файл 1: WHITE-CIDR-RU-all.txt ---
+          FILE_URL1="https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt"
+          DISK_PATH1="disk:/git_sinc/WHITE-CIDR-RU-all.txt"
           
-          # Отправляем GET-запрос с параметрами в строке запроса (как требует документация)
+          # URL-кодируем параметры
+          ENCODED_URL1=$(echo -n "$FILE_URL1" | jq -sRr @uri)
+          ENCODED_PATH1=$(echo -n "$DISK_PATH1" | jq -sRr @uri)
+          
+          # Отправляем запрос для первого файла
           curl -X POST \
             -H "Authorization: OAuth $YANDEX_TOKEN" \
-            "https://cloud-api.yandex.net/v1/disk/resources/upload?url=$FILE_URL&path=$DISK_PATH"
+            "https://cloud-api.yandex.net/v1/disk/resources/upload?url=$ENCODED_URL1&path=$ENCODED_PATH1"
+          
+          # Небольшая пауза между запросами
+          sleep 2
+          
+          # --- Файл 2: BLACK_VLESS_RUS.txt ---
+          FILE_URL2="https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS.txt"
+          DISK_PATH2="disk:/git_sinc/BLACK_VLESS_RUS.txt"
+          
+          # URL-кодируем параметры
+          ENCODED_URL2=$(echo -n "$FILE_URL2" | jq -sRr @uri)
+          ENCODED_PATH2=$(echo -n "$DISK_PATH2" | jq -sRr @uri)
+          
+          # Отправляем запрос для второго файла
+          curl -X POST \
+            -H "Authorization: OAuth $YANDEX_TOKEN" \
+            "https://cloud-api.yandex.net/v1/disk/resources/upload?url=$ENCODED_URL2&path=$ENCODED_PATH2"
