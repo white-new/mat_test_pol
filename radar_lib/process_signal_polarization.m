@@ -1,14 +1,17 @@
-function [y_HH, y_HV, y_VH, y_VV, R_y, results] = process_signal_polarization(rx_HH_cell, rx_HV_cell, rx_VH_cell, rx_VV_cell, x_active, cfg)
+function [y_HH, y_HV, y_VH, y_VV, y_HH_norm, y_HV_norm, y_VH_norm, y_VV_norm, R_y, results] = process_signal_polarization(rx_HH_cell, rx_HV_cell, rx_VH_cell, rx_VV_cell, x_active, cfg)
     % PROCESS_SIGNAL_POLARIZATION - Обработка 4 поляризационных каналов
-    %   Возвращает КОМПЛЕКСНЫЕ значения (сохраняем фазы!)
+    %   Возвращает КОМПЛЕКСНЫЕ значения (для анализа) и нормированные (для графиков)
 
-    % === Обработка каждого канала (возвращает комплексные значения) ===
-    [y_HH, R_y] = process_single_channel(rx_HH_cell, x_active, cfg);
-    [y_HV, ~] = process_single_channel(rx_HV_cell, x_active, cfg);
-    [y_VH, ~] = process_single_channel(rx_VH_cell, x_active, cfg);
-    [y_VV, ~] = process_single_channel(rx_VV_cell, x_active, cfg);
+    % === Обработка каждого канала (возвращает КОМПЛЕКСНУЮ МАТРИЦУ) ===
+    [y_HH, y_HV, y_VH, y_VV, R_y] = process_all_channels(rx_HH_cell, rx_HV_cell, rx_VH_cell, rx_VV_cell, x_active, cfg);
 
-    % === Обнаружение (по амплитуде каждого канала) ===
+    % === Нормированные версии для графиков (каждый канал отдельно) ===
+    y_HH_norm = abs(y_HH) / (max(abs(y_HH)) + eps);
+    y_HV_norm = abs(y_HV) / (max(abs(y_HV)) + eps);
+    y_VH_norm = abs(y_VH) / (max(abs(y_VH)) + eps);
+    y_VV_norm = abs(y_VV) / (max(abs(y_VV)) + eps);
+
+    % === Обнаружение ===
     results = struct();
     results.target_detected_HH = false;
     results.target_detected_HV = false;
@@ -22,26 +25,18 @@ function [y_HH, y_HV, y_VH, y_VV, R_y, results] = process_signal_polarization(rx
     if cfg.enable.DETECTION && cfg.enable.CHANNEL
         th = cfg.Threshold_rel;
         
-        % Находим индексы цели и помехи
         [~, idx_target] = min(abs(R_y - cfg.targetRange));
         [~, idx_clutter] = min(abs(R_y - cfg.clutterRange));
         
-        % Нормируем КАЖДЫЙ КАНАЛ ОТДЕЛЬНО для обнаружения
-        HH_norm = abs(y_HH) / (max(abs(y_HH)) + eps);
-        HV_norm = abs(y_HV) / (max(abs(y_HV)) + eps);
-        VH_norm = abs(y_VH) / (max(abs(y_VH)) + eps);
-        VV_norm = abs(y_VV) / (max(abs(y_VV)) + eps);
+        results.target_detected_HH = y_HH_norm(idx_target) > th;
+        results.target_detected_HV = y_HV_norm(idx_target) > th;
+        results.target_detected_VH = y_VH_norm(idx_target) > th;
+        results.target_detected_VV = y_VV_norm(idx_target) > th;
         
-        % Обнаружение
-        results.target_detected_HH = HH_norm(idx_target) > th;
-        results.target_detected_HV = HV_norm(idx_target) > th;
-        results.target_detected_VH = VH_norm(idx_target) > th;
-        results.target_detected_VV = VV_norm(idx_target) > th;
-        
-        results.clutter_detected_HH = HH_norm(idx_clutter) > th;
-        results.clutter_detected_HV = HV_norm(idx_clutter) > th;
-        results.clutter_detected_VH = VH_norm(idx_clutter) > th;
-        results.clutter_detected_VV = VV_norm(idx_clutter) > th;
+        results.clutter_detected_HH = y_HH_norm(idx_clutter) > th;
+        results.clutter_detected_HV = y_HV_norm(idx_clutter) > th;
+        results.clutter_detected_VH = y_VH_norm(idx_clutter) > th;
+        results.clutter_detected_VV = y_VV_norm(idx_clutter) > th;
         
         fprintf('\n--- ОБНАРУЖЕНИЕ (4 канала) ---\n');
         fprintf('Цель на %.1f км:\n', cfg.targetRange/1000);
@@ -59,10 +54,22 @@ function [y_HH, y_HV, y_VH, y_VV, R_y, results] = process_signal_polarization(rx
     end
 end
 
-% ===== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ (возвращает КОМПЛЕКСНЫЕ значения) =====
-function [y_complex, R_y] = process_single_channel(rx_cell, x_active, cfg)
-    % PROCESS_SINGLE_CHANNEL - Обработка одного поляризационного канала
-    %   Возвращает КОМПЛЕКСНЫЕ значения (сохраняем фазы!)
+% ===== НОВАЯ ФУНКЦИЯ: обрабатывает все каналы и возвращает МАТРИЦУ =====
+function [y_HH, y_HV, y_VH, y_VV, R_y] = process_all_channels(rx_HH_cell, rx_HV_cell, rx_VH_cell, rx_VV_cell, x_active, cfg)
+    % PROCESS_ALL_CHANNELS - Обработка всех каналов с сохранением матрицы
+    %   Возвращает КОМПЛЕКСНЫЕ МАТРИЦЫ [отсчёты x импульсы]
+
+    % Обрабатываем каждый канал отдельно
+    [y_HH, R_y] = process_single_channel_matrix(rx_HH_cell, x_active, cfg);
+    [y_HV, ~] = process_single_channel_matrix(rx_HV_cell, x_active, cfg);
+    [y_VH, ~] = process_single_channel_matrix(rx_VH_cell, x_active, cfg);
+    [y_VV, ~] = process_single_channel_matrix(rx_VV_cell, x_active, cfg);
+end
+
+% ===== ФУНКЦИЯ ДЛЯ ОДНОГО КАНАЛА (возвращает МАТРИЦУ) =====
+function [y_complex, R_y] = process_single_channel_matrix(rx_cell, x_active, cfg)
+    % PROCESS_SINGLE_CHANNEL_MATRIX - Обработка одного канала
+    %   Возвращает КОМПЛЕКСНУЮ МАТРИЦУ [отсчёты x импульсы]
 
     % Согласованный фильтр
     if cfg.enable.MATCHED_FILTER && cfg.enable.CHANNEL
@@ -94,7 +101,7 @@ function [y_complex, R_y] = process_single_channel(rx_cell, x_active, cfg)
         y_MTI = y;
     end
 
-    % Когерентное накопление (суммируем по импульсам)
+    % Когерентное накопление (суммируем по импульсам для оси дальности)
     if cfg.enable.ACCUMULATION && cfg.enable.CHANNEL
         y_accum = sum(y_MTI, 2);
     else
@@ -108,8 +115,8 @@ function [y_complex, R_y] = process_single_channel(rx_cell, x_active, cfg)
     idx = find(R_y > 0 & R_y < 20000);
     R_y = R_y(idx);
     
-    % ВОЗВРАЩАЕМ КОМПЛЕКСНЫЕ ЗНАЧЕНИЯ (без нормировки!)
-    y_complex = y_accum(idx);
+    % Обрезаем матрицу по дальности
+    y_complex = y_MTI(idx, :);
 end
 
 function out = iif(cond, t, f)

@@ -29,21 +29,27 @@ function cfg = config(varargin)
     cfg.steering_angle_az = 0;
     cfg.steering_angle_el = 0;
 
-    %% =====================================================================
-    %  3. ОБЪЕКТЫ
-    %  =====================================================================
-    % --- Цель ---
-    cfg.targetRange = 5000;
-    cfg.targetSpeed = 25;
-    cfg.targetDirection = 1;
-    cfg.targetRCS = 10;
-    cfg.targetHeight = 5;
+%% =====================================================================
+%  3. ОБЪЕКТЫ
+%  =====================================================================
+% --- Цель ---
+cfg.targetRange = 5000;
+cfg.targetSpeed = 25;
+cfg.targetDirection = 1;
+cfg.targetRCS = 10;
+cfg.targetHeight = 5;
 
-    % --- Помеха ---
-    cfg.clutterRange = 4000;
-    cfg.clutterRCS = 100;           % 0 - отключить помеху
-    cfg.clutterSpeed = 0;
-    cfg.clutterHeight = 5;
+% НОВОЕ: Тип цели и угол поворота
+cfg.target_type = 'custom';     % 'corner', 'dipole', 'sphere', 'custom'
+cfg.target_angle = 0;           % угол поворота цели, град
+cfg.target_rotate = false;      % вращать ли цель во времени
+cfg.target_rotation_speed = 10; % скорость вращения, град/с
+
+% --- Помеха ---
+cfg.clutterRange = 4000;
+cfg.clutterRCS = 0;           % 0 - отключить помеху
+cfg.clutterSpeed = 0;
+cfg.clutterHeight = 5;
 
     %% =====================================================================
     %  4. СРЕДА
@@ -54,7 +60,7 @@ function cfg = config(varargin)
 %  5. ПОЛЯРИЗАЦИОННЫЕ МАТРИЦЫ (индивидуальные!)
 %  =====================================================================
 
-% --- Матрица рассеяния ЦЕЛИ ---
+% --- Матрица рассеяния ЦЕЛИ (используется если target_type = 'custom') ---
 cfg.target.HH_amp = 10;      % Амплитуда HH, кв.м
 cfg.target.HH_phase = 0;     % Фаза HH, град
 cfg.target.HV_amp = 3;       % Амплитуда HV, кв.м
@@ -95,7 +101,7 @@ cfg.clutter.VV_phase = 15;   % Фаза VV, град
     cfg.enable.ACCUMULATION = true;     % Когерентное накопление
     cfg.enable.DETECTION = true;        % Обнаружение
     cfg.enable.DOPPLER = true;          % Доплеровская обработка
-    
+    cfg.enable.FLUCTUATIONS = true;  % отключаем флуктуации
     % --- Графики (по отдельности!) ---
     cfg.enable.PLOTS = true;            % Основной figure (9 графиков)
     cfg.enable.PLOTS_RANGE = true;      % График дальности

@@ -1,6 +1,6 @@
 function plot_results_polarization(x_active, t, rx_HH_cell, y_HH, y_HV, y_VH, y_VV, R_y, cfg, results)
     % PLOT_RESULTS_POLARIZATION - Визуализация 4 поляризационных каналов
-    %   Использует КОМПЛЕКСНЫЕ значения для сохранения фаз
+    %   Использует КОМПЛЕКСНЫЕ значения
 
     if ~cfg.enable.PLOTS || ~cfg.enable.CHANNEL
         return;
@@ -16,6 +16,12 @@ function plot_results_polarization(x_active, t, rx_HH_cell, y_HH, y_HV, y_VH, y_
     HV_phase = angle(y_HV) * 180/pi;
     VH_phase = angle(y_VH) * 180/pi;
     VV_phase = angle(y_VV) * 180/pi;
+
+    % Нормируем амплитуды КАЖДОГО канала отдельно для отображения
+    HH_norm = HH_abs / (max(HH_abs) + eps);
+    HV_norm = HV_abs / (max(HV_abs) + eps);
+    VH_norm = VH_abs / (max(VH_abs) + eps);
+    VV_norm = VV_abs / (max(VV_abs) + eps);
 
     figure('Name', 'Радарная обработка (4 канала)', 'Position', [50 50 1400 900]);
 
@@ -51,14 +57,8 @@ function plot_results_polarization(x_active, t, rx_HH_cell, y_HH, y_HV, y_VH, y_
     xline((cfg.fc - cfg.BW/2)/1e6, 'r--', sprintf('f_c-BW/2', cfg.BW/1e6), 'LineWidth', 1);
     xline((cfg.fc + cfg.BW/2)/1e6, 'r--', sprintf('f_c+BW/2', cfg.BW/1e6), 'LineWidth', 1);
 
-    % ===== ГРАФИК 4: Все 4 канала (АБСОЛЮТНЫЕ амплитуды) =====
+    % ===== ГРАФИК 4: Все 4 канала =====
     subplot(3,3,4);
-    % Нормируем КАЖДЫЙ канал отдельно для отображения
-    HH_norm = HH_abs / max(HH_abs);
-    HV_norm = HV_abs / max(HV_abs);
-    VH_norm = VH_abs / max(VH_abs);
-    VV_norm = VV_abs / max(VV_abs);
-    
     plot(R_y/1000, HH_norm, 'b', 'LineWidth', 1.5);
     hold on;
     plot(R_y/1000, HV_norm, 'r', 'LineWidth', 1.5);
@@ -68,22 +68,24 @@ function plot_results_polarization(x_active, t, rx_HH_cell, y_HH, y_HV, y_VH, y_
         yline(cfg.Threshold_rel, 'k--', 'Порог', 'LineWidth', 1.5);
     end
     xlabel('Дальность (км)'); ylabel('Норм. амплитуда');
-    title('Все 4 канала (отдельная нормировка)');
+    title('Все 4 канала');
     grid on; xlim([0 15]);
     xline(cfg.targetRange/1000, 'g--', 'Цель', 'LineWidth', 2);
     xline(cfg.clutterRange/1000, 'r--', 'Помеха', 'LineWidth', 2);
     legend('HH', 'HV', 'VH', 'VV', 'Location', 'best');
 
-    % ===== ГРАФИК 5: Матрица рассеяния (АБСОЛЮТНЫЕ амплитуды) =====
+    % ===== ГРАФИК 5: Матрица рассеяния (АМПЛИТУДЫ) =====
     subplot(3,3,5);
     [~, idx_target] = min(abs(R_y - cfg.targetRange));
-    [~, idx_clutter] = min(abs(R_y - cfg.clutterRange));
     
-    % Берём АБСОЛЮТНЫЕ значения на дальности цели
-    S_target = [HH_abs(idx_target), HV_abs(idx_target); 
-                VH_abs(idx_target), VV_abs(idx_target)];
+    % Берём значения НА ПИКЕ (idx_target)
+    HH_abs_target = abs(y_HH(idx_target));
+    HV_abs_target = abs(y_HV(idx_target));
+    VH_abs_target = abs(y_VH(idx_target));
+    VV_abs_target = abs(y_VV(idx_target));
     
-    % Нормируем только для визуализации (чтобы видеть различия)
+    S_target = [HH_abs_target, HV_abs_target; 
+                VH_abs_target, VV_abs_target];
     S_target_norm = S_target / max(S_target(:));
     
     imagesc(S_target_norm);
@@ -125,10 +127,15 @@ function plot_results_polarization(x_active, t, rx_HH_cell, y_HH, y_HV, y_VH, y_
     text(0.1, 0.2, ['SNR: ' num2str(cfg.SNR_dB) ' дБ'], 'FontSize', 11);
     text(0.1, 0.05, ['Импульсов: ' num2str(cfg.NumPulses)], 'FontSize', 11);
 
-    % ===== ГРАФИК 7: Фазы матрицы (АБСОЛЮТНЫЕ фазы) =====
+    % ===== ГРАФИК 7: Фазы матрицы =====
     subplot(3,3,7);
-    S_target_phase = [HH_phase(idx_target), HV_phase(idx_target); 
-                      VH_phase(idx_target), VV_phase(idx_target)];
+    HH_phase_target = angle(y_HH(idx_target)) * 180/pi;
+    HV_phase_target = angle(y_HV(idx_target)) * 180/pi;
+    VH_phase_target = angle(y_VH(idx_target)) * 180/pi;
+    VV_phase_target = angle(y_VV(idx_target)) * 180/pi;
+    
+    S_target_phase = [HH_phase_target, HV_phase_target; 
+                      VH_phase_target, VV_phase_target];
     imagesc(S_target_phase);
     colorbar;
     colormap('hsv');
@@ -142,13 +149,18 @@ function plot_results_polarization(x_active, t, rx_HH_cell, y_HH, y_HV, y_VH, y_
         end
     end
 
-    % ===== ГРАФИК 8: Сравнение каналов (АБСОЛЮТНЫЕ амплитуды) =====
+    % ===== ГРАФИК 8: Сравнение каналов =====
     subplot(3,3,8);
     channels = {'HH', 'HV', 'VH', 'VV'};
-    target_amps = [HH_abs(idx_target), HV_abs(idx_target), ...
-                   VH_abs(idx_target), VV_abs(idx_target)];
-    clutter_amps = [HH_abs(idx_clutter), HV_abs(idx_clutter), ...
-                    VH_abs(idx_clutter), VV_abs(idx_clutter)];
+    
+    % Индексы цели и помехи
+    [~, idx_target] = min(abs(R_y - cfg.targetRange));
+    [~, idx_clutter] = min(abs(R_y - cfg.clutterRange));
+    
+    target_amps = [abs(y_HH(idx_target)), abs(y_HV(idx_target)), ...
+                   abs(y_VH(idx_target)), abs(y_VV(idx_target))];
+    clutter_amps = [abs(y_HH(idx_clutter)), abs(y_HV(idx_clutter)), ...
+                    abs(y_VH(idx_clutter)), abs(y_VV(idx_clutter))];
     bar([target_amps; clutter_amps]');
     set(gca, 'XTickLabel', channels);
     xlabel('Канал'); ylabel('Амплитуда');
@@ -156,7 +168,7 @@ function plot_results_polarization(x_active, t, rx_HH_cell, y_HH, y_HV, y_VH, y_
     legend('Цель', 'Помеха', 'Location', 'best');
     grid on;
 
-    % ===== ГРАФИК 9: Уровень сигнала (все каналы, дБ) =====
+    % ===== ГРАФИК 9: Уровень сигнала (дБ) =====
     subplot(3,3,9);
     plot(R_y/1000, 20*log10(HH_abs + eps), 'b', 'LineWidth', 1.5);
     hold on;
@@ -164,7 +176,6 @@ function plot_results_polarization(x_active, t, rx_HH_cell, y_HH, y_HV, y_VH, y_
     plot(R_y/1000, 20*log10(VH_abs + eps), 'g', 'LineWidth', 1.5);
     plot(R_y/1000, 20*log10(VV_abs + eps), 'm', 'LineWidth', 1.5);
     if cfg.enable.DETECTION
-        % Порог в дБ (относительный)
         yline(20*log10(cfg.Threshold_rel + eps), 'k--', 'Порог', 'LineWidth', 1.5);
     end
     xlabel('Дальность (км)'); ylabel('Амплитуда (дБ)');
