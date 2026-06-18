@@ -15,10 +15,17 @@ jobs:
           FILE_URL="https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt"
           DISK_PATH="disk:/git_sinc/WHITE-CIDR-RU-all.txt"
           
-          # Отправляем данные как обычную форму (application/x-www-form-urlencoded)
+          # Создаем JSON-файл
+          cat > payload.json << EOF
+          {
+            "url": "$FILE_URL",
+            "path": "$DISK_PATH"
+          }
+          EOF
+          
+          # Отправляем запрос с JSON-файлом
           curl -X POST \
             -H "Authorization: OAuth $YANDEX_TOKEN" \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            --data-urlencode "url=$FILE_URL" \
-            --data-urlencode "path=$DISK_PATH" \
+            -H "Content-Type: application/json" \
+            -d @payload.json \
             "https://cloud-api.yandex.net/v1/disk/resources/upload"
