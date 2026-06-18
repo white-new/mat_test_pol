@@ -1,19 +1,21 @@
-function [rx_H_cell, rx_V_cell] = propagate_objects(x, targets, clutters, antenna, cfg)
+function [rx_HH_cell, rx_HV_cell, rx_VH_cell, rx_VV_cell] = propagate_objects(x, targets, clutters, antenna, cfg)
     % PROPAGATE_OBJECTS - Распространение сигнала от всех объектов
+    %   Возвращает 4 поляризационных канала: HH, HV, VH, VV
 
     if ~cfg.enable.CHANNEL
         fprintf('Канал распространения ВЫКЛЮЧЕН\n');
-        rx_H_cell = cell(1, cfg.NumPulses);
-        rx_V_cell = cell(1, cfg.NumPulses);
+        rx_HH_cell = cell(1, cfg.NumPulses);
+        rx_HV_cell = cell(1, cfg.NumPulses);
+        rx_VH_cell = cell(1, cfg.NumPulses);
+        rx_VV_cell = cell(1, cfg.NumPulses);
         for pulse = 1:cfg.NumPulses
-            rx_H_cell{pulse} = zeros(length(x), 1);
-            rx_V_cell{pulse} = zeros(length(x), 1);
+            rx_HH_cell{pulse} = zeros(length(x), 1);
+            rx_HV_cell{pulse} = zeros(length(x), 1);
+            rx_VH_cell{pulse} = zeros(length(x), 1);
+            rx_VV_cell{pulse} = zeros(length(x), 1);
         end
         return;
     end
-
-    % Параметры среды
-    AtmosLoss_dB_per_km = 0.01;
 
     % Потери в тракте (общие для всех)
     Loss_Feed = 2.0;
@@ -21,7 +23,7 @@ function [rx_H_cell, rx_V_cell] = propagate_objects(x, targets, clutters, antenn
     Loss_Radome = 0.5;
     TotalLoss_Linear = 10^(-(Loss_Feed + Loss_Circulator + Loss_Radome)/10);
 
-    % Канал
+    % Канал распространения
     channel = phased.FreeSpace(...
         'SampleRate', cfg.Fs, ...
         'OperatingFrequency', cfg.fc, ...
@@ -36,16 +38,22 @@ function [rx_H_cell, rx_V_cell] = propagate_objects(x, targets, clutters, antenn
 
     fprintf('Распространение от %d объектов: ', num_objects);
 
-    rx_H_cell = cell(1, cfg.NumPulses);
-    rx_V_cell = cell(1, cfg.NumPulses);
+    % Инициализация ячеек для 4 каналов
+    rx_HH_cell = cell(1, cfg.NumPulses);
+    rx_HV_cell = cell(1, cfg.NumPulses);
+    rx_VH_cell = cell(1, cfg.NumPulses);
+    rx_VV_cell = cell(1, cfg.NumPulses);
 
     for pulse = 1:cfg.NumPulses
         if mod(pulse, 8) == 0
             fprintf('%d ', pulse);
         end
 
-        rx_H_cell{pulse} = zeros(length(x), 1);
-        rx_V_cell{pulse} = zeros(length(x), 1);
+        % Инициализация для текущего импульса
+        rx_HH_cell{pulse} = zeros(length(x), 1);
+        rx_HV_cell{pulse} = zeros(length(x), 1);
+        rx_VH_cell{pulse} = zeros(length(x), 1);
+        rx_VV_cell{pulse} = zeros(length(x), 1);
 
         for obj_idx = 1:num_objects
             obj = all_objects(obj_idx);
@@ -62,56 +70,62 @@ function [rx_H_cell, rx_V_cell] = propagate_objects(x, targets, clutters, antenn
             
             gain_dir = antenna_pattern(az, el, antenna);
             
-            % === ПРОХОД ЧЕРЕЗ КАНАЛ ===
+            % === ПРОХОД ЧЕРЕЗ КАНАЛ (ДО ЦЕЛИ) ===
+            % Передаём H и V сигналы
             rx_H_pulse = channel(x, radarPos, objPos, radarVel, objVel);
             rx_V_pulse = channel(x, radarPos, objPos, radarVel, objVel);
 
-            % ===== ИСПРАВЛЕНО: потери зависят от дальности объекта =====
-%             AtmosLoss_Linear_obj = 10^(-AtmosLoss_dB_per_km * obj.range / 1000 / 10);
-%             rx_H_pulse = rx_H_pulse * sqrt(AtmosLoss_Linear_obj);
-%             rx_V_pulse = rx_V_pulse * sqrt(AtmosLoss_Linear_obj);
+            % === ПОЛЯРИЗАЦИОННАЯ МАТРИЦА ===
+            PolMat = obj.polarization_matrix;
+            
+            % Флуктуации
+            if isfield(obj, 'is_clutter') && obj.is_clutter
+                fluct = 1;
+            else
+                fluct = sqrt(exprnd(1));
+            end
+            PolMat = PolMat * fluct;
 
-            % === ПОЛЯРИЗАЦИЯ И ЭПР ===
-if isfield(obj, 'is_clutter') && obj.is_clutter
-    % Для помехи: ЭПР постоянная, но учитываем её значение!
-    rcs_scale = sqrt(obj.rcs / obj.rcs);  % = 1, но сохраняем структуру
-    % ИЛИ ПРОЩЕ:
-    rcs_scale = 1;
-    % НО нужно умножить на sqrt(obj.rcs) отдельно!
-else
-    % Для цели: флуктуации с сохранением средней ЭПР
-    rcs_scale = sqrt(exprnd(obj.rcs) / obj.rcs);
-end
-
-% Амплитуда сигнала пропорциональна sqrt(ЭПР)
-% Поэтому умножаем на sqrt(obj.rcs) для обоих случаев
-amplitude_scale = sqrt(obj.rcs);
-PolMat = obj.polarization_matrix * rcs_scale * amplitude_scale;
-
-            rx_H_obj = PolMat(1,1) * rx_H_pulse + PolMat(1,2) * rx_V_pulse;
-            rx_V_obj = PolMat(2,1) * rx_H_pulse + PolMat(2,2) * rx_V_pulse;
+            % === ОТРАЖЕНИЕ (ВСЕ 4 КАНАЛА) ===
+            % HH: передали H, приняли H
+            rx_HH = PolMat(1,1) * rx_H_pulse;
+            % HV: передали H, приняли V
+            rx_HV = PolMat(1,2) * rx_V_pulse;
+            % VH: передали V, приняли H
+            rx_VH = PolMat(2,1) * rx_H_pulse;
+            % VV: передали V, приняли V
+            rx_VV = PolMat(2,2) * rx_V_pulse;
 
             % === ДОПЛЕР ===
             if obj.speed ~= 0
                 fd = 2 * obj.speed * obj.direction / cfg.lambda;
                 delta_phase = 2 * pi * fd / cfg.PRF;
                 doppler_shift = exp(1j * (pulse-1) * delta_phase);
-                rx_H_obj = rx_H_obj * doppler_shift;
-                rx_V_obj = rx_V_obj * doppler_shift;
+                rx_HH = rx_HH * doppler_shift;
+                rx_HV = rx_HV * doppler_shift;
+                rx_VH = rx_VH * doppler_shift;
+                rx_VV = rx_VV * doppler_shift;
             end
 
-            % === УСИЛЕНИЕ АНТЕННЫ И ПОТЕРИ В ТРАКТЕ ===
-            rx_H_obj = rx_H_obj * gain_dir * sqrt(TotalLoss_Linear);
-            rx_V_obj = rx_V_obj * gain_dir * sqrt(TotalLoss_Linear);
+            % === УСИЛЕНИЕ АНТЕННЫ И ПОТЕРИ ===
+            rx_HH = rx_HH * gain_dir * sqrt(TotalLoss_Linear);
+            rx_HV = rx_HV * gain_dir * sqrt(TotalLoss_Linear);
+            rx_VH = rx_VH * gain_dir * sqrt(TotalLoss_Linear);
+            rx_VV = rx_VV * gain_dir * sqrt(TotalLoss_Linear);
 
-            % === ДОБАВЛЯЕМ К СУММАРНОМУ СИГНАЛУ ===
-            % === ДИАГНОСТИКА (для первого импульса) ===
-if pulse == 1 && obj_idx == 1
-    fprintf('Объект %d: range=%.1f, power_H=%.3e, power_V=%.3e\n', ...
-            obj_idx, obj.range, mean(abs(rx_H_obj).^2), mean(abs(rx_V_obj).^2));
-end
-            rx_H_cell{pulse} = rx_H_cell{pulse} + rx_H_obj;
-            rx_V_cell{pulse} = rx_V_cell{pulse} + rx_V_obj;
+            % === ДИАГНОСТИКА ===
+            if pulse == 1 && obj_idx == 1
+                fprintf('Объект %d: range=%.1f, HH=%.3e, HV=%.3e, VH=%.3e, VV=%.3e\n', ...
+                        obj_idx, obj.range, ...
+                        mean(abs(rx_HH).^2), mean(abs(rx_HV).^2), ...
+                        mean(abs(rx_VH).^2), mean(abs(rx_VV).^2));
+            end
+            
+            % === СУММИРУЕМ ===
+            rx_HH_cell{pulse} = rx_HH_cell{pulse} + rx_HH;
+            rx_HV_cell{pulse} = rx_HV_cell{pulse} + rx_HV;
+            rx_VH_cell{pulse} = rx_VH_cell{pulse} + rx_VH;
+            rx_VV_cell{pulse} = rx_VV_cell{pulse} + rx_VV;
         end
     end
 

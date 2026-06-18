@@ -50,17 +50,29 @@ function cfg = config(varargin)
     %  =====================================================================
     cfg.AtmosLoss_dB_per_km = 0.01;
 
-    %% =====================================================================
-    %  5. ПОЛЯРИЗАЦИОННАЯ МАТРИЦА (общая для всех объектов)
-    %  =====================================================================
-    cfg.polarization.HH_amp = 10;
-    cfg.polarization.HH_phase = 0;
-    cfg.polarization.HV_amp = 3;
-    cfg.polarization.HV_phase = 45;
-    cfg.polarization.VH_amp = 3;
-    cfg.polarization.VH_phase = -30;
-    cfg.polarization.VV_amp = 8;
-    cfg.polarization.VV_phase = 20;
+%% =====================================================================
+%  5. ПОЛЯРИЗАЦИОННЫЕ МАТРИЦЫ (индивидуальные!)
+%  =====================================================================
+
+% --- Матрица рассеяния ЦЕЛИ ---
+cfg.target.HH_amp = 10;      % Амплитуда HH, кв.м
+cfg.target.HH_phase = 0;     % Фаза HH, град
+cfg.target.HV_amp = 3;       % Амплитуда HV, кв.м
+cfg.target.HV_phase = 45;    % Фаза HV, град
+cfg.target.VH_amp = 3;       % Амплитуда VH, кв.м
+cfg.target.VH_phase = -30;   % Фаза VH, град
+cfg.target.VV_amp = 8;       % Амплитуда VV, кв.м
+cfg.target.VV_phase = 20;    % Фаза VV, град
+
+% --- Матрица рассеяния ПОМЕХИ (clutter) ---
+cfg.clutter.HH_amp = 5;      % Амплитуда HH, кв.м
+cfg.clutter.HH_phase = 10;   % Фаза HH, град
+cfg.clutter.HV_amp = 0.5;    % Амплитуда HV, кв.м
+cfg.clutter.HV_phase = 30;   % Фаза HV, град
+cfg.clutter.VH_amp = 0.5;    % Амплитуда VH, кв.м
+cfg.clutter.VH_phase = -20;  % Фаза VH, град
+cfg.clutter.VV_amp = 4;      % Амплитуда VV, кв.м
+cfg.clutter.VV_phase = 15;   % Фаза VV, град
 
     %% =====================================================================
     %  6. ПАРАМЕТРЫ ОБРАБОТКИ

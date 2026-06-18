@@ -1,11 +1,12 @@
 function clutters = create_clutters(cfg)
     % CREATE_CLUTTERS - Создание списка помех
 
+    % Матрица рассеяния ПОМЕХИ (из cfg.clutter)
     PolMat = [
-        cfg.polarization.HH_amp * exp(1j * cfg.polarization.HH_phase * pi/180), ...
-        cfg.polarization.HV_amp * exp(1j * cfg.polarization.HV_phase * pi/180);
-        cfg.polarization.VH_amp * exp(1j * cfg.polarization.VH_phase * pi/180), ...
-        cfg.polarization.VV_amp * exp(1j * cfg.polarization.VV_phase * pi/180)
+        cfg.clutter.HH_amp * exp(1j * cfg.clutter.HH_phase * pi/180), ...
+        cfg.clutter.HV_amp * exp(1j * cfg.clutter.HV_phase * pi/180);
+        cfg.clutter.VH_amp * exp(1j * cfg.clutter.VH_phase * pi/180), ...
+        cfg.clutter.VV_amp * exp(1j * cfg.clutter.VV_phase * pi/180)
     ];
 
     clutters = struct();

@@ -1,11 +1,12 @@
 function targets = create_targets(cfg)
     % CREATE_TARGETS - Создание списка целей
 
+    % Матрица рассеяния ЦЕЛИ (из cfg.target)
     PolMat = [
-        cfg.polarization.HH_amp * exp(1j * cfg.polarization.HH_phase * pi/180), ...
-        cfg.polarization.HV_amp * exp(1j * cfg.polarization.HV_phase * pi/180);
-        cfg.polarization.VH_amp * exp(1j * cfg.polarization.VH_phase * pi/180), ...
-        cfg.polarization.VV_amp * exp(1j * cfg.polarization.VV_phase * pi/180)
+        cfg.target.HH_amp * exp(1j * cfg.target.HH_phase * pi/180), ...
+        cfg.target.HV_amp * exp(1j * cfg.target.HV_phase * pi/180);
+        cfg.target.VH_amp * exp(1j * cfg.target.VH_phase * pi/180), ...
+        cfg.target.VV_amp * exp(1j * cfg.target.VV_phase * pi/180)
     ];
 
     targets = struct();
