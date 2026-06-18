@@ -12,8 +12,8 @@ jobs:
         env:
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
         run: |
-          # --- Функция для загрузки и проверки ---
-          upload_and_check() {
+          # --- Функция для загрузки файла ---
+          upload_file() {
             local FILE_URL=$1
             local DISK_PATH=$2
             local FILE_NAME=$3
@@ -21,62 +21,48 @@ jobs:
             echo "=== Загрузка $FILE_NAME ==="
             ENCODED_PATH=$(echo -n "$DISK_PATH" | jq -sRr @uri)
             
-            # Шаг 1: Получаем URL для загрузки
-            echo "Запрос ссылки для загрузки..."
+            # Шаг 1: Получаем ссылку для загрузки
+            echo "Получение ссылки для загрузки..."
             RESPONSE=$(curl -s -X GET \
               -H "Authorization: OAuth $YANDEX_TOKEN" \
               "https://cloud-api.yandex.net/v1/disk/resources/upload?path=$ENCODED_PATH&overwrite=true")
             
-            # Выводим ответ для диагностики
             echo "Ответ сервера: $RESPONSE"
             
-            # Проверяем, есть ли ошибка в ответе
-            if echo "$RESPONSE" | grep -q '"error"'; then
-              echo "❌ Ошибка API: $RESPONSE"
+            # Извлекаем ссылку для загрузки
+            UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.href')
+            
+            if [ -z "$UPLOAD_URL" ] || [ "$UPLOAD_URL" == "null" ]; then
+              echo "❌ Не удалось получить ссылку для загрузки"
               return 1
             fi
             
-            # Извлекаем ссылку на операцию или на загрузку
-            OPERATION_URL=$(echo "$RESPONSE" | jq -r '.href')
+            # Шаг 2: Загружаем файл по ссылке
+            echo "Загрузка содержимого файла..."
+            curl -X PUT \
+              -H "Authorization: OAuth $YANDEX_TOKEN" \
+              --data-urlencode "url=$FILE_URL" \
+              "$UPLOAD_URL"
             
-            if [ -z "$OPERATION_URL" ] || [ "$OPERATION_URL" == "null" ]; then
-              echo "❌ Не удалось получить ссылку для загрузки. Ответ: $RESPONSE"
+            # Проверяем результат последней команды
+            if [ $? -eq 0 ]; then
+              echo "✅ $FILE_NAME успешно загружен и заменен!"
+              return 0
+            else
+              echo "❌ Ошибка при загрузке $FILE_NAME"
               return 1
             fi
-            
-            echo "✅ Ссылка получена. Ожидание завершения операции..."
-            
-            # Шаг 2: Отслеживаем статус
-            for i in {1..15}; do
-              sleep 2
-              STATUS_RESPONSE=$(curl -s -X GET -H "Authorization: OAuth $YANDEX_TOKEN" "$OPERATION_URL")
-              STATUS=$(echo "$STATUS_RESPONSE" | jq -r '.status')
-              
-              echo "Попытка $i: статус = $STATUS"
-              
-              if [ "$STATUS" == "success" ]; then
-                echo "✅ $FILE_NAME успешно загружен и заменен!"
-                return 0
-              elif [ "$STATUS" == "failure" ]; then
-                ERROR_MSG=$(echo "$STATUS_RESPONSE" | jq -r '.error // "неизвестная ошибка"')
-                echo "❌ Ошибка при загрузке: $ERROR_MSG"
-                return 1
-              fi
-            done
-            
-            echo "⏰ Время ожидания истекло"
-            return 1
           }
           
           # --- Загружаем файлы ---
-          upload_and_check \
+          upload_file \
             "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt" \
             "disk:/git_sinc/WHITE-CIDR-RU-all.txt" \
             "WHITE-CIDR-RU-all.txt"
           
-          sleep 3
+          sleep 2
           
-          upload_and_check \
+          upload_file \
             "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS.txt" \
             "disk:/git_sinc/BLACK_VLESS_RUS.txt" \
             "BLACK_VLESS_RUS.txt"
