@@ -38,15 +38,23 @@ function analyze_polarization(y_HH, y_HV, y_VH, y_VV, R_y, cfg)
     [S0_r, S1_r, S2_r, S3_r, s1_r, s2_r, s3_r, p_r] = calc_stokes(y_HH_range, y_HV_range, y_VH_range, y_VV_range);
     [S0_p, S1_p, S2_p, S3_p, s1_p, s2_p, s3_p, p_p] = calc_stokes(y_HH_pulse, y_HV_pulse, y_VH_pulse, y_VV_pulse);
 
-    % === 5. Средние ===
-    s1_avg = mean(s1_p); s2_avg = mean(s2_p); s3_avg = mean(s3_p);
-    chi_avg = 0.5 * asin(s3_avg);
-    psi_avg = 0.5 * atan2(s2_avg, s1_avg);
-    p_avg = sqrt(s1_avg^2 + s2_avg^2 + s3_avg^2);
+% === 5. Средние и углы ===
+s1_avg = mean(s1_p); s2_avg = mean(s2_p); s3_avg = mean(s3_p);
 
-    fprintf('  Степень поляризации: %.3f\n', p_avg);
-    fprintf('  Угол эллиптичности: %.1f°\n', chi_avg * 180/pi);
-    fprintf('  Угол ориентации: %.1f°\n', psi_avg * 180/pi);
+% Используем поэлементное возведение в квадрат
+p_avg = sqrt(s1_avg.^2 + s2_avg.^2 + s3_avg.^2);
+
+% Добавляем защиту от деления на ноль
+if s1_avg == 0 && s2_avg == 0
+    psi_avg = 0;
+else
+    psi_avg = 0.5 * atan2(s2_avg, s1_avg);
+end
+chi_avg = 0.5 * asin(max(min(s3_avg, 1), -1)); % Ограничиваем значение
+
+fprintf('  Степень поляризации: %.3f\n', p_avg);
+fprintf('  Угол эллиптичности: %.1f°\n', chi_avg * 180/pi);
+fprintf('  Угол ориентации: %.1f°\n', psi_avg * 180/pi);
 
     % === 6. ГРАФИКИ ===
     figure('Name', 'Поляризационный анализ', 'Position', [100 100 1400 900]);
