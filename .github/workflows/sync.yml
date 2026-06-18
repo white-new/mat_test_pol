@@ -19,10 +19,20 @@ jobs:
             local FILE_NAME=$3
             
             echo "=== Загрузка $FILE_NAME ==="
+            
+            # Шаг 1: Скачиваем файл с GitHub
+            echo "Скачивание файла из интернета..."
+            FILE_CONTENT=$(curl -s "$FILE_URL")
+            
+            if [ -z "$FILE_CONTENT" ]; then
+              echo "❌ Не удалось скачать файл $FILE_NAME"
+              return 1
+            fi
+            
+            # Шаг 2: Получаем ссылку для загрузки на Яндекс.Диск
+            echo "Получение ссылки для загрузки на Яндекс.Диск..."
             ENCODED_PATH=$(echo -n "$DISK_PATH" | jq -sRr @uri)
             
-            # Шаг 1: Получаем ссылку для загрузки
-            echo "Получение ссылки для загрузки..."
             RESPONSE=$(curl -s -X GET \
               -H "Authorization: OAuth $YANDEX_TOKEN" \
               "https://cloud-api.yandex.net/v1/disk/resources/upload?path=$ENCODED_PATH&overwrite=true")
@@ -37,11 +47,12 @@ jobs:
               return 1
             fi
             
-            # Шаг 2: Загружаем файл по ссылке
-            echo "Загрузка содержимого файла..."
+            # Шаг 3: Загружаем содержимое файла на Яндекс.Диск
+            echo "Загрузка содержимого файла на Яндекс.Диск..."
             curl -X PUT \
               -H "Authorization: OAuth $YANDEX_TOKEN" \
-              --data-urlencode "url=$FILE_URL" \
+              -H "Content-Type: text/plain" \
+              --data-binary "$FILE_CONTENT" \
               "$UPLOAD_URL"
             
             # Проверяем результат последней команды
