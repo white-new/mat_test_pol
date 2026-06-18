@@ -1,9 +1,8 @@
 name: Синхронизация с Яндекс Диском
 on:
   schedule:
-    # Запускать каждые 2 часа
     - cron: '0 */2 * * *'
-  workflow_dispatch: # Ручной запуск
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -13,31 +12,55 @@ jobs:
         env:
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
         run: |
-          # --- Файл 1: WHITE-CIDR-RU-all.txt ---
-          FILE_URL1="https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt"
-          DISK_PATH1="disk:/git_sinc/WHITE-CIDR-RU-all.txt"
+          # --- Функция для загрузки и проверки ---
+          upload_and_check() {
+            local FILE_URL=$1
+            local DISK_PATH=$2
+            local FILE_NAME=$3
+            
+            echo "Загрузка $FILE_NAME..."
+            ENCODED_PATH=$(echo -n "$DISK_PATH" | jq -sRr @uri)
+            
+            # 1. Отправляем запрос на загрузку и получаем ссылку на операцию
+            OPERATION_URL=$(curl -s -X GET \
+              -H "Authorization: OAuth $YANDEX_TOKEN" \
+              "https://cloud-api.yandex.net/v1/disk/resources/upload?path=$ENCODED_PATH&overwrite=true" \
+              | jq -r '.href')
+            
+            if [ -z "$OPERATION_URL" ] || [ "$OPERATION_URL" == "null" ]; then
+              echo "Ошибка: не удалось начать загрузку $FILE_NAME"
+              return 1
+            fi
+            
+            # 2. Ждем и проверяем статус операции
+            echo "Ожидание завершения операции для $FILE_NAME..."
+            for i in {1..10}; do
+              sleep 1
+              STATUS=$(curl -s -X GET -H "Authorization: OAuth $YANDEX_TOKEN" "$OPERATION_URL" | jq -r '.status')
+              echo "Статус операции: $STATUS"
+              
+              if [ "$STATUS" == "success" ]; then
+                echo "✅ $FILE_NAME успешно загружен и заменен!"
+                return 0
+              elif [ "$STATUS" == "failure" ]; then
+                echo "❌ Ошибка при загрузке $FILE_NAME"
+                return 1
+              fi
+            done
+            
+            echo "⏰ Время ожидания операции истекло для $FILE_NAME"
+            return 1
+          }
           
-          # URL-кодируем параметры
-          ENCODED_URL1=$(echo -n "$FILE_URL1" | jq -sRr @uri)
-          ENCODED_PATH1=$(echo -n "$DISK_PATH1" | jq -sRr @uri)
+          # --- Загружаем файлы ---
+          upload_and_check \
+            "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt" \
+            "disk:/git_sinc/WHITE-CIDR-RU-all.txt" \
+            "WHITE-CIDR-RU-all.txt"
           
-          # Отправляем запрос для первого файла
-          curl -X POST \
-            -H "Authorization: OAuth $YANDEX_TOKEN" \
-            "https://cloud-api.yandex.net/v1/disk/resources/upload?url=$ENCODED_URL1&path=$ENCODED_PATH1&overwrite=true"
-          
-          # Небольшая пауза между запросами
           sleep 2
           
-          # --- Файл 2: BLACK_VLESS_RUS.txt ---
-          FILE_URL2="https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS.txt"
-          DISK_PATH2="disk:/git_sinc/BLACK_VLESS_RUS.txt"
-          
-          # URL-кодируем параметры
-          ENCODED_URL2=$(echo -n "$FILE_URL2" | jq -sRr @uri)
-          ENCODED_PATH2=$(echo -n "$DISK_PATH2" | jq -sRr @uri)
-          
-          # Отправляем запрос для второго файла
-          curl -X POST \
-            -H "Authorization: OAuth $YANDEX_TOKEN" \
-            "https://cloud-api.yandex.net/v1/disk/resources/upload?url=$ENCODED_URL2&path=$ENCODED_PATH2&overwrite=true"
+          upload_and_check \
+            "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS.txt" \
+            "disk:/git_sinc/BLACK_VLESS_RUS.txt" \
+            "BLACK_VLESS_RUS.txt"
