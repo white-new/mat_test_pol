@@ -15,14 +15,11 @@ jobs:
           FILE_URL="https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt"
           DISK_PATH="disk:/git_sinc/WHITE-CIDR-RU-all.txt"
           
-          # Шаг 1: Получаем URL для загрузки
-          UPLOAD_URL=$(curl -s -X GET \
-            -H "Authorization: OAuth $YANDEX_TOKEN" \
-            "https://cloud-api.yandex.net/v1/disk/resources/upload?path=$DISK_PATH&overwrite=true" \
-            | jq -r '.href')
+          # Формируем JSON напрямую, экранируя кавычки. Это самый надежный способ в bash.
+          JSON_PAYLOAD="{\"url\":\"${FILE_URL}\",\"path\":\"${DISK_PATH}\"}"
           
-          # Шаг 2: Загружаем файл по полученному URL
-          curl -X PUT \
-            -H "Content-Type: text/plain" \
-            --data-urlencode "url=$FILE_URL" \
-            "$UPLOAD_URL"
+          curl -X POST \
+            -H "Authorization: OAuth $YANDEX_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$JSON_PAYLOAD" \
+            "https://cloud-api.yandex.net/v1/disk/resources/upload"
