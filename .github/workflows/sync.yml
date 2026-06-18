@@ -12,20 +12,11 @@ jobs:
         env:
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
         run: |
-          FILE_URL="https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt"
-          DISK_PATH="disk:/git_sinc/WHITE-CIDR-RU-all.txt"
+          # URL-кодируем параметры, чтобы избежать проблем с символами
+          FILE_URL=$(echo -n "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt" | jq -sRr @uri)
+          DISK_PATH=$(echo -n "disk:/git_sinc/WHITE-CIDR-RU-all.txt" | jq -sRr @uri)
           
-          # Создаем JSON-файл
-          cat > payload.json << EOF
-          {
-            "url": "$FILE_URL",
-            "path": "$DISK_PATH"
-          }
-          EOF
-          
-          # Отправляем запрос с JSON-файлом
+          # Отправляем GET-запрос с параметрами в строке запроса (как требует документация)
           curl -X POST \
             -H "Authorization: OAuth $YANDEX_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d @payload.json \
-            "https://cloud-api.yandex.net/v1/disk/resources/upload"
+            "https://cloud-api.yandex.net/v1/disk/resources/upload?url=$FILE_URL&path=$DISK_PATH"
