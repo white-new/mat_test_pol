@@ -15,14 +15,14 @@ jobs:
           FILE_URL="https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt"
           DISK_PATH="disk:/git_sinc/WHITE-CIDR-RU-all.txt"
           
-          # Создаем JSON-строку через heredoc (безопасный способ)
-          JSON_DATA=$(cat <<EOF
-          {"url": "$FILE_URL", "path": "$DISK_PATH"}
-          EOF
-          )
-          
-          curl -X POST \
+          # Шаг 1: Получаем URL для загрузки
+          UPLOAD_URL=$(curl -s -X GET \
             -H "Authorization: OAuth $YANDEX_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$JSON_DATA" \
-            "https://cloud-api.yandex.net/v1/disk/resources/upload"
+            "https://cloud-api.yandex.net/v1/disk/resources/upload?path=$DISK_PATH&overwrite=true" \
+            | jq -r '.href')
+          
+          # Шаг 2: Загружаем файл по полученному URL
+          curl -X PUT \
+            -H "Content-Type: text/plain" \
+            --data-urlencode "url=$FILE_URL" \
+            "$UPLOAD_URL"
