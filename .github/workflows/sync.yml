@@ -1,0 +1,27 @@
+name: Синхронизация с Яндекс Диском
+on:
+  schedule:
+    # Запускать каждый день в 3:00 по UTC (это 6:00 по Москве)
+    - cron: '0 3 * * *'
+  workflow_dispatch: # Опция, чтобы запускать вручную из интерфейса GitHub
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Загрузить файл на Яндекс Диск
+        env:
+          # Берем секретный токен из настроек репозитория
+          YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
+        run: |
+          # 1. Путь к вашему файлу на GitHub
+          FILE_URL="https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt"
+          # 2. Путь, куда сохранить файл на Яндекс Диске
+          DISK_PATH="disk:/git_sinc/WHITE-CIDR-RU-all.txt"
+
+          # 3. Команда, которая отправит запрос Яндекс.Диску
+          curl -X POST \
+            -H "Authorization: OAuth $YANDEX_TOKEN" \
+            -d "url=$FILE_URL" \
+            -d "path=$DISK_PATH" \
+            "https://cloud-api.yandex.net/v1/disk/resources/upload"
