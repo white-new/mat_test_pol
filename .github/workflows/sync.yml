@@ -24,7 +24,7 @@ jobs:
           # Отправляем запрос для первого файла
           curl -X POST \
             -H "Authorization: OAuth $YANDEX_TOKEN" \
-            "https://cloud-api.yandex.net/v1/disk/resources/upload?url=$ENCODED_URL1&path=$ENCODED_PATH1"
+            "https://cloud-api.yandex.net/v1/disk/resources/upload?url=$ENCODED_URL1&path=$ENCODED_PATH1&overwrite=true"
           
           # Небольшая пауза между запросами
           sleep 2
@@ -40,4 +40,4 @@ jobs:
           # Отправляем запрос для второго файла
           curl -X POST \
             -H "Authorization: OAuth $YANDEX_TOKEN" \
-            "https://cloud-api.yandex.net/v1/disk/resources/upload?url=$ENCODED_URL2&path=$ENCODED_PATH2"
+            "https://cloud-api.yandex.net/v1/disk/resources/upload?url=$ENCODED_URL2&path=$ENCODED_PATH2&overwrite=true"
