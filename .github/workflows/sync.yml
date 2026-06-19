@@ -1,0 +1,79 @@
+name: Синхронизация с Яндекс Диском
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Загрузить файлы на Яндекс Диск
+        env:
+          YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
+        run: |
+          # --- Функция для загрузки файла ---
+          upload_file() {
+            local FILE_URL=$1
+            local DISK_PATH=$2
+            local FILE_NAME=$3
+            
+            echo "=== Загрузка $FILE_NAME ==="
+            
+            # Шаг 1: Скачиваем файл с GitHub
+            echo "Скачивание файла из интернета..."
+            FILE_CONTENT=$(curl -s "$FILE_URL")
+            
+            if [ -z "$FILE_CONTENT" ]; then
+              echo "❌ Не удалось скачать файл $FILE_NAME"
+              return 1
+            fi
+            
+            # Шаг 2: Получаем ссылку для загрузки на Яндекс.Диск
+            echo "Получение ссылки для загрузки на Яндекс.Диск..."
+            ENCODED_PATH=$(echo -n "$DISK_PATH" | jq -sRr @uri)
+            
+            RESPONSE=$(curl -s -X GET \
+              -H "Authorization: OAuth $YANDEX_TOKEN" \
+              "https://cloud-api.yandex.net/v1/disk/resources/upload?path=$ENCODED_PATH&overwrite=true")
+            
+            echo "Ответ сервера: $RESPONSE"
+            
+            # Извлекаем ссылку для загрузки
+            UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.href')
+            
+            if [ -z "$UPLOAD_URL" ] || [ "$UPLOAD_URL" == "null" ]; then
+              echo "❌ Не удалось получить ссылку для загрузки"
+              return 1
+            fi
+            
+            # Шаг 3: Загружаем содержимое файла на Яндекс.Диск
+            echo "Загрузка содержимого файла на Яндекс.Диск..."
+            curl -X PUT \
+              -H "Authorization: OAuth $YANDEX_TOKEN" \
+              -H "Content-Type: text/plain" \
+              --data-binary "$FILE_CONTENT" \
+              "$UPLOAD_URL"
+            
+            # Проверяем результат последней команды
+            if [ $? -eq 0 ]; then
+              echo "✅ $FILE_NAME успешно загружен и заменен!"
+              return 0
+            else
+              echo "❌ Ошибка при загрузке $FILE_NAME"
+              return 1
+            fi
+          }
+          
+          # --- Загружаем файлы ---
+          upload_file \
+            "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt" \
+            "disk:/git_sinc/WHITE-CIDR-RU-all.txt" \
+            "WHITE-CIDR-RU-all.txt"
+          
+          sleep 2
+          
+          upload_file \
+            "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS.txt" \
+            "disk:/git_sinc/BLACK_VLESS_RUS.txt" \
+            "BLACK_VLESS_RUS.txt"
