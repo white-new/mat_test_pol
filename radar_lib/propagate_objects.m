@@ -38,7 +38,14 @@ function [rx_HH_cell, rx_HV_cell, rx_VH_cell, rx_VV_cell] = propagate_objects(x,
         all_objects = [targets, clutters];
     end
     num_objects = length(all_objects);
-
+    % ===== ОПТИМИЗАЦИЯ ДЛЯ БОЛЬШОГО ЧИСЛА ОБЪЕКТОВ =====
+    if num_objects > 100
+        fprintf('Большое число объектов (%d), отключаем детальную диагностику\n', num_objects);
+        verbose_save = cfg.enable.VERBOSE;
+        cfg.enable.VERBOSE = false;
+    else
+        verbose_save = cfg.enable.VERBOSE;
+    end
     fprintf('Количество объектов: %d\n', num_objects);
     for obj_idx = 1:num_objects
         obj = all_objects(obj_idx);
@@ -90,7 +97,7 @@ function [rx_HH_cell, rx_HV_cell, rx_VH_cell, rx_VV_cell] = propagate_objects(x,
             PolMat = obj.polarization_matrix;
             
  % ===== ДИАГНОСТИКА ДЛЯ ДИПОЛЯ (ДО ВРАЩЕНИЯ) =====
-            if isfield(obj, 'type') && strcmp(obj.type, 'dipole') && pulse <= 3
+            if cfg.enable.VERBOSE && isfield(obj, 'type') && strcmp(obj.type, 'dipole') && pulse <= 3
                 fprintf('\n=== ДИПОЛЬ (имп. %d) ===\n', pulse);
                 fprintf('Угол поворота: %.1f°\n', (pulse-1) * obj.rotation_speed * cfg.PRI);
                 fprintf('Матрица ДО вращения: [%.3f, %.3f; %.3f, %.3f]\n', ...
@@ -98,7 +105,7 @@ function [rx_HH_cell, rx_HV_cell, rx_VH_cell, rx_VV_cell] = propagate_objects(x,
                         real(PolMat(2,1)), real(PolMat(2,2)));
             end
 % ===== ДИАГНОСТИКА: ПРОВЕРКА УСЛОВИЙ ВРАЩЕНИЯ =====
-if isfield(obj, 'type') && strcmp(obj.type, 'corner') && pulse == 1
+if cfg.enable.VERBOSE && isfield(obj, 'type') && strcmp(obj.type, 'corner') && pulse == 1
     fprintf('\n=== ПРОВЕРКА ВРАЩЕНИЯ ДЛЯ CORNER ===\n');
     fprintf('obj.rotate = %d\n', isfield(obj, 'rotate') && obj.rotate);
     fprintf('obj.rotation_speed = %.1f\n', obj.rotation_speed);
@@ -112,7 +119,7 @@ end
                 PolMat = R * PolMat * R';
                 
                 % ===== ДИАГНОСТИКА ПОСЛЕ ВРАЩЕНИЯ =====
-                if isfield(obj, 'type') && strcmp(obj.type, 'dipole') && pulse <= 3
+                if cfg.enable.VERBOSE && isfield(obj, 'type') && strcmp(obj.type, 'dipole') && pulse <= 3
                     fprintf('Матрица ПОСЛЕ вращения: [%.3f, %.3f; %.3f, %.3f]\n', ...
                             real(PolMat(1,1)), real(PolMat(1,2)), ...
                             real(PolMat(2,1)), real(PolMat(2,2)));
@@ -132,7 +139,7 @@ end
             PolMat = PolMat * fluct;
 
             % ===== ДИАГНОСТИКА 2: ПОСЛЕ ВРАЩЕНИЯ =====
-            if isfield(obj, 'type') && strcmp(obj.type, 'sphere') && pulse == 1
+            if cfg.enable.VERBOSE && isfield(obj, 'type') && strcmp(obj.type, 'sphere') && pulse == 1
                 fprintf('=== ДИАГНОСТИКА 2: ПОСЛЕ ВРАЩЕНИЯ ===\n');
                 fprintf('  [%.6f, %.6f]\n', real(PolMat(1,1)), real(PolMat(1,2)));
                 fprintf('  [%.6f, %.6f]\n', real(PolMat(2,1)), real(PolMat(2,2)));
@@ -145,7 +152,7 @@ end
             rx_VV = PolMat(2,2) * rx_V_pulse;
 
             % ===== ДИАГНОСТИКА 3: ПОСЛЕ ОТРАЖЕНИЯ (ДО УСИЛЕНИЯ) =====
-            if pulse == 1 && obj_idx == 1
+            if cfg.enable.VERBOSE && pulse == 1 && obj_idx == 1
                 [~, idx_peak] = max(abs(rx_HH));
                 fprintf('\n=== ДИАГНОСТИКА 3: ПОСЛЕ ОТРАЖЕНИЯ (ДО УСИЛЕНИЯ) ===\n');
                 fprintf('Пик %d: HH=%.3e, HV=%.3e, VH=%.3e, VV=%.3e\n', ...
@@ -165,7 +172,7 @@ end
             end
 
             % ===== ДИАГНОСТИКА 4: ПОСЛЕ ДОПЛЕРА =====
-            if pulse == 1 && obj_idx == 1
+            if cfg.enable.VERBOSE && pulse == 1 && obj_idx == 1
                 [~, idx_peak] = max(abs(rx_HH));
                 fprintf('=== ДИАГНОСТИКА 4: ПОСЛЕ ДОПЛЕРА ===\n');
                 fprintf('Пик %d: HH=%.3e, HV=%.3e, VH=%.3e, VV=%.3e\n', ...
@@ -180,7 +187,7 @@ end
             rx_VV = rx_VV * gain_dir * sqrt(TotalLoss_Linear);
 
             % ===== ДИАГНОСТИКА 5: ПОСЛЕ УСИЛЕНИЯ =====
-            if pulse == 1 && obj_idx == 1
+            if cfg.enable.VERBOSE && pulse == 1 && obj_idx == 1
                 [~, idx_peak] = max(abs(rx_HH));
                 fprintf('=== ДИАГНОСТИКА 5: ПОСЛЕ УСИЛЕНИЯ ===\n');
                 fprintf('Пик %d: HH=%.3e, HV=%.3e, VH=%.3e, VV=%.3e\n', ...
@@ -189,7 +196,7 @@ end
             end
 
             % ===== ДИАГНОСТИКА 6: ПЕРЕД СОХРАНЕНИЕМ В ЯЧЕЙКУ =====
-            if pulse == 1 && obj_idx == 1
+            if cfg.enable.VERBOSE && pulse == 1 && obj_idx == 1
                 [~, idx_peak] = max(abs(rx_HH));
                 fprintf('=== ДИАГНОСТИКА 6: ПЕРЕД СОХРАНЕНИЕМ В ЯЧЕЙКУ ===\n');
                 fprintf('Пик %d: HH=%.3e, HV=%.3e, VH=%.3e, VV=%.3e\n', ...
@@ -198,7 +205,7 @@ end
             end
 
             % ===== ДИАГНОСТИКА 7: ЧТО В ЯЧЕЙКЕ ДО СУММИРОВАНИЯ =====
-            if pulse == 1 && obj_idx == 1
+            if cfg.enable.VERBOSE && pulse == 1 && obj_idx == 1
                 fprintf('=== ДИАГНОСТИКА 7: В ЯЧЕЙКЕ ДО СУММИРОВАНИЯ ===\n');
                 fprintf('rx_HV в ячейке (power): %.3e\n', mean(abs(rx_HV_cell{pulse}).^2));
             end
@@ -210,7 +217,7 @@ end
             rx_VV_cell{pulse} = rx_VV_cell{pulse} + rx_VV;
 
             % ===== ДИАГНОСТИКА 8: ПОСЛЕ СУММИРОВАНИЯ =====
-            if pulse == 1 && obj_idx == 1
+            if cfg.enable.VERBOSE && pulse == 1 && obj_idx == 1
                 [~, idx_peak] = max(abs(rx_HH_cell{pulse}));
                 fprintf('=== ДИАГНОСТИКА 8: ПОСЛЕ СУММИРОВАНИЯ В ЯЧЕЙКУ ===\n');
                 fprintf('Пик %d: HH=%.3e, HV=%.3e, VH=%.3e, VV=%.3e\n', ...
@@ -221,7 +228,7 @@ end
             end
             
             % === СРЕДНЯЯ МОЩНОСТЬ (оригинальная диагностика) ===
-            if pulse == 1 && obj_idx == 1
+            if cfg.enable.VERBOSE && pulse == 1 && obj_idx == 1
                 fprintf('Объект %d: range=%.1f, HH=%.3e, HV=%.3e, VH=%.3e, VV=%.3e\n', ...
                         obj_idx, obj.range, ...
                         mean(abs(rx_HH).^2), mean(abs(rx_HV).^2), ...
@@ -231,13 +238,16 @@ end
     end
 
     % === ДИАГНОСТИКА: ПОСЛЕ ЗАПОЛНЕНИЯ ВСЕХ ИМПУЛЬСОВ ===
-    [~, idx_peak_final] = max(abs(rx_HH_cell{1}));
-    fprintf('\n=== ДИАГНОСТИКА: ПОСЛЕ ЗАПОЛНЕНИЯ ВСЕХ ИМПУЛЬСОВ ===\n');
-    fprintf('Пик %d: HH=%.3e, HV=%.3e, VH=%.3e, VV=%.3e\n', ...
-            idx_peak_final, abs(rx_HH_cell{1}(idx_peak_final))^2, ...
-            abs(rx_HV_cell{1}(idx_peak_final))^2, ...
-            abs(rx_VH_cell{1}(idx_peak_final))^2, ...
-            abs(rx_VV_cell{1}(idx_peak_final))^2);
-
+    if cfg.enable.VERBOSE
+        [~, idx_peak_final] = max(abs(rx_HH_cell{1}));
+        fprintf('\n=== ДИАГНОСТИКА: ПОСЛЕ ЗАПОЛНЕНИЯ ВСЕХ ИМПУЛЬСОВ ===\n');
+        fprintf('Пик %d: HH=%.3e, HV=%.3e, VH=%.3e, VV=%.3e\n', ...
+                idx_peak_final, abs(rx_HH_cell{1}(idx_peak_final))^2, ...
+                abs(rx_HV_cell{1}(idx_peak_final))^2, ...
+                abs(rx_VH_cell{1}(idx_peak_final))^2, ...
+                abs(rx_VV_cell{1}(idx_peak_final))^2);
+    end
+        % Восстанавливаем VERBOSE
+    cfg.enable.VERBOSE = verbose_save;
     fprintf('\n');
 end

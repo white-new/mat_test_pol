@@ -41,13 +41,7 @@ plot_results_polarization(x_active, t, rx_HH_cell, y_HH, y_HV, y_VH, y_VV, ...
                           R_y, cfg, results);
 
 %% 8. ПОЛЯРИЗАЦИОННЫЙ АНАЛИЗ
-% Для анализа нужны значения на дальности цели (векторы по импульсам)
-[~, idx_target] = min(abs(R_y - cfg.targetRange));
-y_HH_target = y_HH(idx_target, :);
-y_HV_target = y_HV(idx_target, :);
-y_VH_target = y_VH(idx_target, :);
-y_VV_target = y_VV(idx_target, :);
-
 analyze_polarization(y_HH, y_HV, y_VH, y_VV, R_y, cfg);
 
 %% 9. ВЫВОД
+print_results_polarization(results, cfg)

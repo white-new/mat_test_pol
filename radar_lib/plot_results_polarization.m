@@ -78,11 +78,16 @@ function plot_results_polarization(x_active, t, rx_HH_cell, y_HH, y_HV, y_VH, y_
     subplot(3,3,5);
     [~, idx_target] = min(abs(R_y - cfg.targetRange));
     
-    % Берём значения НА ПИКЕ (idx_target)
-    HH_abs_target = abs(y_HH(idx_target));
-    HV_abs_target = abs(y_HV(idx_target));
-    VH_abs_target = abs(y_VH(idx_target));
-    VV_abs_target = abs(y_VV(idx_target));
+%     % Берём значения НА ПИКЕ (idx_target) по среднему значению по импульсам
+% HH_abs_target = mean(abs(y_HH(idx_target, :)), 2);
+% HV_abs_target = mean(abs(y_HV(idx_target, :)), 2);
+% VH_abs_target = mean(abs(y_VH(idx_target, :)), 2);
+% VV_abs_target = mean(abs(y_VV(idx_target, :)), 2);
+% Берём значения НА ПИКЕ (idx_target)
+HH_abs_target = abs(y_HH(idx_target, 1));
+HV_abs_target = abs(y_HV(idx_target, 1));
+VH_abs_target = abs(y_VH(idx_target, 1));
+VV_abs_target = abs(y_VV(idx_target, 1));
     
     S_target = [HH_abs_target, HV_abs_target; 
                 VH_abs_target, VV_abs_target];
@@ -129,10 +134,10 @@ function plot_results_polarization(x_active, t, rx_HH_cell, y_HH, y_HV, y_VH, y_
 
     % ===== ГРАФИК 7: Фазы матрицы =====
     subplot(3,3,7);
-    HH_phase_target = angle(y_HH(idx_target)) * 180/pi;
-    HV_phase_target = angle(y_HV(idx_target)) * 180/pi;
-    VH_phase_target = angle(y_VH(idx_target)) * 180/pi;
-    VV_phase_target = angle(y_VV(idx_target)) * 180/pi;
+HH_phase_target = angle(y_HH(idx_target, 1)) * 180/pi;
+HV_phase_target = angle(y_HV(idx_target, 1)) * 180/pi;
+VH_phase_target = angle(y_VH(idx_target, 1)) * 180/pi;
+VV_phase_target = angle(y_VV(idx_target, 1)) * 180/pi;
     
     S_target_phase = [HH_phase_target, HV_phase_target; 
                       VH_phase_target, VV_phase_target];
@@ -157,10 +162,10 @@ function plot_results_polarization(x_active, t, rx_HH_cell, y_HH, y_HV, y_VH, y_
     [~, idx_target] = min(abs(R_y - cfg.targetRange));
     [~, idx_clutter] = min(abs(R_y - cfg.clutterRange));
     
-    target_amps = [abs(y_HH(idx_target)), abs(y_HV(idx_target)), ...
-                   abs(y_VH(idx_target)), abs(y_VV(idx_target))];
-    clutter_amps = [abs(y_HH(idx_clutter)), abs(y_HV(idx_clutter)), ...
-                    abs(y_VH(idx_clutter)), abs(y_VV(idx_clutter))];
+target_amps = [abs(y_HH(idx_target, 1)), abs(y_HV(idx_target, 1)), ...
+               abs(y_VH(idx_target, 1)), abs(y_VV(idx_target, 1))];
+clutter_amps = [abs(y_HH(idx_clutter, 1)), abs(y_HV(idx_clutter, 1)), ...
+                abs(y_VH(idx_clutter, 1)), abs(y_VV(idx_clutter, 1))];
     bar([target_amps; clutter_amps]');
     set(gca, 'XTickLabel', channels);
     xlabel('Канал'); ylabel('Амплитуда');

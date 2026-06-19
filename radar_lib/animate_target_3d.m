@@ -118,6 +118,10 @@ function animate_target_3d(cfg)
         fprintf('S2 = %.6e, S3 = %.6e\n', S2, S3);
         fprintf('s1 = %.6f, s2 = %.6f, s3 = %.6f (ИЗ МАССИВА)\n', ...
                 s1_vals(pulse), s2_vals(pulse), s3_vals(pulse));
+        fprintf('Матрица рассеяния:\n');
+        fprintf('  [%.3f, %.3f]\n', HH, HV);
+        fprintf('  [%.3f, %.3f]\n', VH, VV);
+        
     end
     fprintf('============================================\n');
     % ===== ПАРАМЕТРЫ ЭЛЛИПСА ДЛЯ КОНТРОЛЬНЫХ ИМПУЛЬСОВ =====

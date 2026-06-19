@@ -116,7 +116,11 @@ function [y_complex, R_y] = process_single_channel_matrix(rx_cell, x_active, cfg
     R_y = R_y(idx);
     
     % Обрезаем матрицу по дальности
-    y_complex = y_MTI(idx, :);
+if cfg.enable.POLARIZATION_ANALYSIS_PRE_MTI
+    y_complex = y(idx, :);  % До ЧМП
+else
+    y_complex = y_MTI(idx, :);  % После ЧМП
+end
 end
 
 function out = iif(cond, t, f)

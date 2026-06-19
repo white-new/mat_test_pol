@@ -89,7 +89,7 @@ function pattern = array_pattern(az, el, antenna)
     el_rad = el * pi/180;
     
     % Волновое число
-    k = 2*pi / (3e8 / 3e9);  % lambda для 3 ГГц
+    k = 2*pi / (3e8 / cfg.fc);  % lambda 
     
     % Фазовое распределение (линейное для простоты)
     phase_shift = 0;  % можно управлять лучом

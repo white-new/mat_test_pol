@@ -2,7 +2,7 @@
 clear; clc; close all;
 %% ЗАПУСК АНИМАЦИИ
 cfg = config();
-cfg.target_type = 'rotating_corner';      % 'corner', 'dipole', 'sphere' 'rotating_corner'
+cfg.target_type = 'custom';      % 'corner', 'dipole', 'sphere', 'rotating_corner', 'custom'
 cfg.target_rotate = true;
 cfg.target_rotation_speed = 3000;  % град/с
 cfg.enable.PLOTS = false;        % отключаем основной figure

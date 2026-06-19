@@ -1,0 +1,21 @@
+struct
+radar_lib/
+├── main.m                                    ✅
+├── main_animate.m                            ✅
+├── config.m                                  ✅
+├── create_antenna.m                          ✅
+├── create_targets.m                          ✅
+├── create_clutters.m                         ✅
+├── create_distributed_clutter.m              ✅
+├── generate_lfm.m                            ✅
+├── propagate_objects.m                       ✅
+├── antenna_pattern.m                         ✅
+├── add_noise_polarization.m                  ✅
+├── process_signal_polarization.m             ✅
+├── plot_results_polarization.m               ✅
+├── analyze_polarization.m                    ✅
+├── print_results_polarization.m              ✅
+├── animate_target_3d.m                       ✅
+├── process_signal_pre_mti.m                  ✅
+├── target_types.m                            ✅
+├── iif.m                                     ✅
